@@ -1,5 +1,5 @@
 class App {
-    constructor({element, templateName: componentName = null, data = {}, methods = {}}) {
+    constructor({element, componentName = null, data = {}, methods = {}}) {
         Object.defineProperty(this, 'showIfElementsToDataMap', {
             enumerable: true,
             value: new Map(),
@@ -37,11 +37,7 @@ class App {
             value: methods,
         });
 
-        this.loadComponent({
-            componentWrapper: this.element,
-            componentName: this.componentName,
-        })
-
+        this.loadComponent()
             .catch(console.error);
     }
 
@@ -146,10 +142,10 @@ class App {
         }
     }
 
-    loadComponent({componentWrapper, componentName}) {
+    loadComponent({componentWrapper = this.element, componentName = this.componentName} = {}) {
         return App.loadTemplate(componentName)
             .then(template => this.renderTemplate({template}))
-            .then(documentFragment => {debugger;
+            .then(documentFragment => {
                 while (documentFragment.children.length) {
                     componentWrapper.appendChild(documentFragment.children[0])
                 }
