@@ -1,5 +1,5 @@
 class App {
-    constructor({element, componentName = null, data = {}, methods = {}}) {
+    constructor({element = document.body, componentName = 'root', data = {}, methods = {}} = {}) {
         Object.defineProperty(this, 'showIfElementsToDataMap', {
             enumerable: true,
             value: new Map(),
@@ -12,14 +12,13 @@ class App {
             enumerable: true,
             value: componentName || element.dataset['component'],
         });
+
+        element.dataset['component'] = this.componentName;
+
         Object.defineProperty(this, 'element', {
             enumerable: true,
             value: element,
         });
-
-        if (!this.componentName) {
-            throw new Error();
-        }
 
         Object.defineProperty(this, 'data', {
             enumerable: true,
@@ -43,15 +42,15 @@ class App {
 
     checkValues(element = null) {
         Array.from(this.valueElementsToDataMap).forEach(([valueElement, data]) => {
-             if (valueElement !== element) {
-                 const newValue = this.evaluate({expression: data.expression});
+            if (valueElement !== element) {
+                const newValue = this.evaluate({expression: data.expression});
 
-                 if (valueElement.tagName === 'INPUT') {
-                     valueElement.value = newValue;
-                 } else {
-                     valueElement.textContent = newValue;
-                 }
-             }
+                if (valueElement.tagName === 'INPUT') {
+                    valueElement.value = newValue;
+                } else {
+                    valueElement.textContent = newValue;
+                }
+            }
         });
     }
 
