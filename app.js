@@ -1,69 +1,40 @@
 class App {
     constructor({element = document.body, componentName = 'root', data = {}, methods = {}} = {}) {
-        Object.defineProperty(this, 'showIfElementsToDataMap', {
-            enumerable: true,
-            value: new Map(),
-        });
-        Object.defineProperty(this, 'valueElementsToDataMap', {
-            enumerable: true,
-            value: new Map(),
-        });
-        Object.defineProperty(this, 'componentName', {
-            enumerable: true,
-            value: componentName || element.dataset['component'],
-        });
-
-        element.dataset['component'] = this.componentName;
-
-        Object.defineProperty(this, 'element', {
-            enumerable: true,
-            value: element,
-        });
-
-        Object.defineProperty(this, 'data', {
-            enumerable: true,
-            value: this.createGhost(data),
-        });
-
         methods = Object.assign({}, methods);
-        Object.keys(methods).forEach(methodName => {
-            methods[methodName] = methods[methodName].bind(this);
+        Object.keys(methods).forEach(key => {
+            methods[key] = methods[key].bind(this);
         });
         Object.freeze(methods);
 
-        Object.defineProperty(this, 'methods', {
-            enumerable: true,
-            value: methods,
+        Object.defineProperties(this, {
+            componentName: {
+                enumerable: true,
+                value: componentName || element.dataset['component'],
+            },
+            data: {
+                enumerable: true,
+                value: this.createGhost(data),
+            },
+            element: {
+                enumerable: true,
+                value: element,
+            },
+            methods: {
+                enumerable: true,
+                value: methods,
+            },
+            showIfElementToDataMap: {
+                enumerable: true,
+                value: new Map(),
+            },
+            valueElementToDataMap: {
+                enumerable: true,
+                value: new Map(),
+            },
         });
-
+        element.dataset['component'] = this.componentName;
         this.loadComponent()
             .catch(console.error);
-    }
-
-    checkValues(element = null) {
-        Array.from(this.valueElementsToDataMap).forEach(([valueElement, data]) => {
-            if (valueElement !== element) {
-                const newValue = this.evaluate({expression: data.expression});
-
-                if (valueElement.tagName === 'INPUT') {
-                    valueElement.value = newValue;
-                } else {
-                    valueElement.textContent = newValue;
-                }
-            }
-        });
-    }
-
-    checkVisibility() {
-        Array.from(this.showIfElementsToDataMap).forEach(([element, data]) => {
-            const shouldBeVisible = !!this.evaluate({expression: data.expression});
-
-            if (shouldBeVisible) {
-                this.showElement(element);
-            } else {
-                this.hideElement(element);
-            }
-        });
     }
 
     createGhost(data) {
@@ -74,7 +45,7 @@ class App {
             if (typeof data[key] === 'object') {
                 Object.defineProperty(ghost, key, {
                     enumerable: true,
-                    value: this.createGhost(data[key], true),
+                    value: this.createGhost(data[key]),
                 });
             } else {
                 Object.defineProperty(ghost, key, {
@@ -91,14 +62,14 @@ class App {
                             data[key] = newValue;
                         }
 
-                        app.checkVisibility();
+                        app.updateVisibility();
 
                         if (isNewValueFromInputElement) {
-                            app.checkValues(newValue)
+                            app.updateValues(newValue);
                         } else {
-                            app.checkValues();
+                            app.updateValues();
                         }
-                    }
+                    },
                 });
             }
         });
@@ -118,7 +89,7 @@ class App {
         if (expression) {
             evaluatingCode += expression;
         } else if (element) {
-            const data = this.valueElementsToDataMap.get(element);
+            const data = this.valueElementToDataMap.get(element);
 
             evaluatingCode += `${data.expression} = element;`;
         }
@@ -128,12 +99,12 @@ class App {
 
     handleEvent({methodName, event}) {
         if (this.methods.hasOwnProperty(methodName)) {
-            this.methods[methodName].apply(this, [event, this.data]);
+            this.methods[methodName].apply(null, [event]);
         }
     }
 
     hideElement(element) {
-        const data = this.showIfElementsToDataMap.get(element);
+        const data = this.showIfElementToDataMap.get(element);
 
         if (!data.isHidden) {
             element.replaceWith(data.anchor);
@@ -141,22 +112,28 @@ class App {
         }
     }
 
-    loadComponent({componentWrapper = this.element, componentName = this.componentName} = {}) {
+    loadComponent({componentWrapper = this.element, componentName = this.componentName, parentComponentNameList = []} = {}) {
+        if (parentComponentNameList.indexOf(componentName) >= 0) {
+            return Promise.reject('A component cycle was detected during loading');
+        }
+
+        parentComponentNameList.unshift(componentName);
+
         return App.loadTemplate(componentName)
-            .then(template => this.renderTemplate({template}))
+            .then(template => this.renderTemplate({template, parentComponentNameList}))
             .then(documentFragment => {
                 while (documentFragment.children.length) {
-                    componentWrapper.appendChild(documentFragment.children[0])
+                    componentWrapper.appendChild(documentFragment.children[0]);
                 }
             })
-            .catch((error) => {
+            .catch(error => {
                 console.error(error);
 
                 return Promise.reject('Can\'t get a component');
-            });
+            })
     }
 
-    renderTemplate({template}) {
+    renderTemplate({template, parentComponentNameList}) {
         const divElement = document.createElement('div');
 
         divElement.innerHTML = template;
@@ -164,7 +141,7 @@ class App {
         const documentFragment = divElement.firstChild.content;
 
         Array.from(documentFragment.querySelectorAll('[data-show-if]')).forEach(element => {
-            this.showIfElementsToDataMap.set(element, {
+            this.showIfElementToDataMap.set(element, {
                 anchor: document.createComment(' an anchor comment '),
                 expression: element.dataset['showIf'],
                 isHidden: false,
@@ -172,22 +149,22 @@ class App {
         });
 
         Array.from(documentFragment.querySelectorAll('[data-value]')).forEach(element => {
-            this.valueElementsToDataMap.set(element, {
+            this.valueElementToDataMap.set(element, {
                 expression: element.dataset['value'],
             });
 
             if (element.tagName === 'INPUT') {
                 element.addEventListener('input', () => {
                     this.evaluate({element});
-                })
+                });
             }
         });
 
-        const eventNameList = ['submit', 'click'];
-        const elementsWithDataOnAttributesSelector = eventNameList.map(eventName => `[data-on-${eventName}]`).join(',');
-        const dataOnAttributeNameRegExp = new RegExp(`^data-on-(${eventNameList.join('|')})`);
+        const eventNameList = ['click', 'submit'];
+        const elementsWithDataOnAttributeSelector = eventNameList.map(eventName => `[data-on-${eventName}]`).join(',');
+        const dataOnAttributeNameRegExp = new RegExp(`^data-on-(${eventNameList.join('|')})$`);
 
-        Array.from(documentFragment.querySelectorAll(elementsWithDataOnAttributesSelector)).forEach(element => {
+        Array.from(documentFragment.querySelectorAll(elementsWithDataOnAttributeSelector)).forEach(element => {
             Array.from(element.attributes)
                 .filter(attribute => dataOnAttributeNameRegExp.exec(attribute.name))
                 .forEach(attribute => {
@@ -200,17 +177,18 @@ class App {
                 });
         });
 
-        const subComponentsPromiseList = Array.from(documentFragment.querySelectorAll('[data-component]')).map(element => {
+        const subComponentPromiseList = Array.from(documentFragment.querySelectorAll('[data-component]')).map(element => {
             return this.loadComponent({
                 componentWrapper: element,
                 componentName: element.dataset['component'],
+                parentComponentNameList,
             });
         });
 
-        return Promise.all(subComponentsPromiseList)
+        return Promise.all(subComponentPromiseList)
             .then(() => {
-                this.checkVisibility();
-                this.checkValues();
+                this.updateVisibility();
+                this.updateValues();
             })
             .then(() => documentFragment)
             .catch(error => {
@@ -221,12 +199,38 @@ class App {
     }
 
     showElement(element) {
-        const data = this.showIfElementsToDataMap.get(element);
+        const data = this.showIfElementToDataMap.get(element);
 
         if (data.isHidden) {
             data.anchor.replaceWith(element);
             data.isHidden = false;
         }
+    }
+
+    updateValues(element = null) {
+        Array.from(this.valueElementToDataMap).forEach(([valueElement, data]) => {
+            if (valueElement !== element) {
+                const newValue = this.evaluate({expression: data.expression});
+
+                if (valueElement.tagName === 'INPUT') {
+                    valueElement.value = newValue;
+                } else {
+                    valueElement.textContent = newValue;
+                }
+            }
+        });
+    }
+
+    updateVisibility() {
+        Array.from(this.showIfElementToDataMap).forEach(([element, data]) => {
+            const shouldBeVisible = !!this.evaluate({expression: data.expression});
+
+            if (shouldBeVisible) {
+                this.showElement(element);
+            } else {
+                this.hideElement(element);
+            }
+        });
     }
 
     static loadTemplate(templateName) {
