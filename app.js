@@ -140,7 +140,7 @@ class App {
 
         const documentFragment = divElement.firstChild.content;
 
-        Array.from(documentFragment.querySelectorAll('[data-show-if]')).forEach(element => {
+        documentFragment.querySelectorAll('[data-show-if]').forEach(element => {
             this.showIfElementToDataMap.set(element, {
                 anchor: document.createComment(' an anchor comment '),
                 expression: element.dataset['showIf'],
@@ -148,7 +148,7 @@ class App {
             });
         });
 
-        Array.from(documentFragment.querySelectorAll('[data-value]')).forEach(element => {
+        documentFragment.querySelectorAll('[data-value]').forEach(element => {
             this.valueElementToDataMap.set(element, {
                 expression: element.dataset['value'],
             });
@@ -164,7 +164,7 @@ class App {
         const elementsWithDataOnAttributeSelector = eventNameList.map(eventName => `[data-on-${eventName}]`).join(',');
         const dataOnAttributeNameRegExp = new RegExp(`^data-on-(${eventNameList.join('|')})$`);
 
-        Array.from(documentFragment.querySelectorAll(elementsWithDataOnAttributeSelector)).forEach(element => {
+        documentFragment.querySelectorAll(elementsWithDataOnAttributeSelector).forEach(element => {
             Array.from(element.attributes)
                 .filter(attribute => dataOnAttributeNameRegExp.exec(attribute.name))
                 .forEach(attribute => {
@@ -208,7 +208,7 @@ class App {
     }
 
     updateValues(element = null) {
-        Array.from(this.valueElementToDataMap).forEach(([valueElement, data]) => {
+        this.valueElementToDataMap.forEach((data, valueElement) => {
             if (valueElement !== element) {
                 const newValue = this.evaluate({expression: data.expression});
 
@@ -222,7 +222,7 @@ class App {
     }
 
     updateVisibility() {
-        Array.from(this.showIfElementToDataMap).forEach(([element, data]) => {
+        this.showIfElementToDataMap.forEach((data, element) => {
             const shouldBeVisible = !!this.evaluate({expression: data.expression});
 
             if (shouldBeVisible) {
