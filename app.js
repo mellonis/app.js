@@ -1,4 +1,4 @@
-class App {
+export default class App {
     constructor({element = document.body, componentName = 'root', data = {}, methods = {}} = {}) {
         methods = Object.assign({}, methods);
         Object.keys(methods).forEach(key => {
@@ -32,7 +32,7 @@ class App {
                 value: new Map(),
             },
         });
-        element.dataset['component'] = this.componentName;
+        element.dataset['component'] = componentName;
         this.loadComponent()
             .catch(console.error);
     }
@@ -138,7 +138,7 @@ class App {
 
         divElement.innerHTML = template;
 
-        const documentFragment = divElement.firstChild.content;
+        const documentFragment = divElement.firstChild?.content;
 
         documentFragment.querySelectorAll('[data-show-if]').forEach(element => {
             this.showIfElementToDataMap.set(element, {
