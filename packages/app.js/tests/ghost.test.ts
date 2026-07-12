@@ -109,4 +109,31 @@ describe('ghost reactivity', () => {
 
         expect(app.data.user).toBe('Ada');
     });
+
+    it('treats arrays as replaceable leaf values (issue #6)', async () => {
+        stubTemplates({root: '<template></template>'});
+        const app = new App({element: mountPoint(), data: {items: [1, 2]}});
+        await flush();
+
+        expect(Array.isArray(app.data.items)).toBe(true);
+        expect(app.data.items).toEqual([1, 2]);
+
+        app.data.items = [3];
+
+        expect(app.data.items).toEqual([3]);
+    });
+
+    it('does not recurse into arrays nested in objects (issue #6)', async () => {
+        stubTemplates({root: '<template></template>'});
+        const app = new App({element: mountPoint(), data: {user: {tags: ['a']}}});
+        await flush();
+
+        const user = app.data.user as Record<string, unknown>;
+
+        expect(Array.isArray(user.tags)).toBe(true);
+
+        user.tags = ['a', 'b'];
+
+        expect(user.tags).toEqual(['a', 'b']);
+    });
 });

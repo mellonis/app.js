@@ -75,7 +75,7 @@ export default class App {
         const app = this;
 
         Object.keys(data).forEach(key => {
-            if (data[key] !== null && typeof data[key] === 'object') {
+            if (data[key] !== null && typeof data[key] === 'object' && !Array.isArray(data[key])) {
                 Object.defineProperty(ghost, key, {
                     enumerable: true,
                     value: this.#createGhost(data[key] as Record<string, unknown>),
