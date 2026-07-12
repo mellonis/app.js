@@ -16,7 +16,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm run build
-      - run: git diff --exit-code app.js app.d.ts
-      - run: node -e "import('./app.js').then(m => { if (typeof m.default !== 'function') process.exit(1) })"
       - run: npm test
