@@ -4,32 +4,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A tiny reactive framework in a single ES module (`app.js`), written as a teaching project for students learning JavaScript and the DOM. It is deliberately dependency-free vanilla JS: no build step, no bundler, no libraries. Keep it that way — the constraint is the point of the project.
+A tiny reactive framework written as a teaching project for students learning JavaScript and the DOM. The source of truth is `src/app.ts` (TypeScript 7, strict, native `#private` internals); `tsc` emits `app.js` + `app.d.ts` at the repo root, and both artifacts stay **committed** so a page can `import App from '/app.js'` with no build step. Never hand-edit the root artifacts — change `src/app.ts` and run the build; CI fails if they drift. Runtime dependencies: none — keep it that way.
 
 ## Commands
 
-There is no build, lint, or test tooling (`npm test` is an unimplemented stub). To exercise the framework manually, serve the directory over HTTP (templates are loaded with `fetch`, so `file://` will not work):
-
 ```sh
-python3 -m http.server   # or: npx serve
+npm ci            # install dev deps (typescript, vitest, happy-dom)
+npm run build     # tsc -p tsconfig.build.json → app.js + app.d.ts at root
+npm run typecheck # tsc -p tsconfig.json (src + tests, no emit)
+npm test          # vitest run (happy-dom environment)
+npx vitest run tests/components.test.ts   # single file
 ```
 
-You need a host page that imports the framework as an ES module and a `/templates` directory at the server root (neither exists in this repo — the framework is the only artifact):
+Tests import `../src/app` directly. Known open bugs (#2, #3, #4, #8) are encoded as `it.fails` cases asserting the *desired* behavior — when you fix one, its `it.fails` starts failing; remove the `.fails` modifier as part of the fix.
 
-```html
-<script type="module">
-  import App from '/app.js';
-  new App({ data: { ... }, methods: { ... } });
-</script>
-```
+To exercise the framework manually, serve the directory over HTTP (templates load via `fetch`, so `file://` won't work) with a host page and a `/templates` directory — see README.
 
 ## Architecture
 
-Everything is the `App` class in `app.js`. One instance = one component tree rooted at `element` (default `document.body`).
+Everything is the `App` class in `src/app.ts`. One instance = one component tree rooted at `element` (default `document.body`). Internals are native `#private`; the public surface is the constructor, `element`, `data`, `methods`, `componentName`, `static loadTemplate`, and the static template cache map.
 
 **Reactivity — `createGhost(data)`.** The constructor wraps `data` in a "ghost" object: each primitive key becomes a getter/setter pair over the original data, each object key recurses into a nested ghost. Every set triggers `updateVisibility()` and `updateValues()` — there is no dependency tracking; all bindings re-evaluate on any change. Ghosts are non-extensible, so the data shape is fixed at construction. A setter given an `HTMLInputElement` stores its `.value` instead (this is how two-way input binding writes back).
 
-**Templates and components.** `loadComponent()` fetches `/templates/<componentName>.html`, renders it, and appends the result into the wrapper element. Template fetches are cached in a static `Map` (template-name → promise) shared by all `App` instances. Each template file must have a `<template>` element as its first child — `renderTemplate` reads `divElement.firstChild.content`. Elements with `data-component="name"` inside a template recursively load that template as a sub-component; cycles are detected via `parentComponentNameList` and rejected. Sub-components share the root instance's `data`/`methods` — there is no per-component scope.
+**Templates and components.** `loadComponent()` fetches `/templates/<componentName>.html`, renders it, and appends the result into the wrapper element. Template fetches are cached in a static `Map` (template-name → promise) shared by all `App` instances. Each template file must have a `<template>` element as its first child — `renderTemplate` reads `divElement.firstChild.content`. Elements with `data-component="name"` inside a template recursively load that template as a sub-component; each recursion branch carries its own copy of the ancestor chain, so reuse across branches is fine while true cycles are rejected (issue #1). Sub-components share the root instance's `data`/`methods` — there is no per-component scope.
 
 **Directives** (wired up once, in `renderTemplate`):
 - `data-show-if="expr"` — element is swapped with an anchor comment node when the expression is falsy (`hideElement`/`showElement`), not CSS-hidden.
