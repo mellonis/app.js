@@ -64,6 +64,7 @@ export default class App {
     readonly #forBlocks = new Set<ForBlock>();
 
     #evaluationScope: Record<string, unknown> | undefined;
+    #evaluationElement: HTMLElement | undefined;
 
     static readonly #templateNameToTemplatePromiseMap = new Map<string, Promise<string>>();
 
@@ -164,17 +165,20 @@ export default class App {
         } else if (element) {
             const entry = this.#valueElementToDataMap.get(element)!;
 
-            // Rooted at this.data so the assignment hits the ghost setter;
-            // a bare `expression = element` would assign the eval-local var
-            evaluatingCode += `this.data.${entry.expression} = element;`;
+            // Rooted at this.data so the assignment hits the ghost setter, and
+            // the input delivered via this.#evaluationElement — a data key named
+            // `element` would shadow the parameter inside the eval scope
+            evaluatingCode += `this.data.${entry.expression} = this.#evaluationElement;`;
         }
 
         this.#evaluationScope = scope;
+        this.#evaluationElement = element ?? undefined;
 
         try {
             return eval(evaluatingCode);
         } finally {
             this.#evaluationScope = undefined;
+            this.#evaluationElement = undefined;
         }
     }
 

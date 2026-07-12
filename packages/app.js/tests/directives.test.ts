@@ -61,6 +61,20 @@ describe('data-value', () => {
         expect((app.data.user as Record<string, unknown>).name).toBe('after');
     });
 
+    it('write-back survives a data key named "element" (issue #11)', async () => {
+        stubTemplates({root: '<template><input data-value="name"></template>'});
+        const host = mountPoint();
+        const app = new App({element: host, data: {element: 'decoy', name: 'before'}});
+        await app.ready;
+
+        const input = host.querySelector('input')!;
+
+        input.value = 'after';
+        input.dispatchEvent(new Event('input'));
+
+        expect(app.data.name).toBe('after');
+    });
+
     it('binds an input two-way for a top-level key (issue #2)', async () => {
         stubTemplates({root: '<template><input data-value="name"><span data-value="name"></span></template>'});
         const host = mountPoint();
