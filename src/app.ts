@@ -247,8 +247,15 @@ export default class App {
     #updateValues(element: HTMLElement | null = null): void {
         this.#valueElementToDataMap.forEach((entry, valueElement) => {
             if (valueElement !== element) {
-                // A throwing expression aborts the rest of this pass — issue #4
-                const newValue = this.#evaluate({expression: entry.expression});
+                let newValue: unknown;
+
+                try {
+                    newValue = this.#evaluate({expression: entry.expression});
+                } catch (error) {
+                    console.error(`Can't evaluate the "${entry.expression}" expression`, valueElement, error);
+
+                    return;
+                }
 
                 if (valueElement.tagName === 'INPUT') {
                     (valueElement as HTMLInputElement).value = newValue as string;
@@ -261,7 +268,15 @@ export default class App {
 
     #updateVisibility(): void {
         this.#showIfElementToDataMap.forEach((entry, element) => {
-            const shouldBeVisible = !!this.#evaluate({expression: entry.expression});
+            let shouldBeVisible: boolean;
+
+            try {
+                shouldBeVisible = !!this.#evaluate({expression: entry.expression});
+            } catch (error) {
+                console.error(`Can't evaluate the "${entry.expression}" expression`, element, error);
+
+                return;
+            }
 
             if (shouldBeVisible) {
                 this.#showElement(element);

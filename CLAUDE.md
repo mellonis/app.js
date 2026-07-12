@@ -16,7 +16,7 @@ npm test          # vitest run (happy-dom environment)
 npx vitest run tests/components.test.ts   # single file
 ```
 
-Tests import `../src/app` directly. Known open bugs (#2, #4, #8) are encoded as `it.fails` cases asserting the *desired* behavior — when you fix one, its `it.fails` starts failing; remove the `.fails` modifier as part of the fix.
+Tests import `../src/app` directly. Known open bugs (#2, #8) are encoded as `it.fails` cases asserting the *desired* behavior — when you fix one, its `it.fails` starts failing; remove the `.fails` modifier as part of the fix.
 
 To exercise the framework manually, serve the directory over HTTP (templates load via `fetch`, so `file://` won't work) with a host page and a `/templates` directory — see README.
 

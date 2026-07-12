@@ -74,8 +74,8 @@ describe('component loading', () => {
         });
     });
 
-    it.fails('renders remaining bindings when one expression throws (issue #4)', async () => {
-        vi.spyOn(console, 'error').mockImplementation(() => {});
+    it('renders remaining bindings when one expression throws (issue #4)', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({
             root: '<template><span data-value="oops()"></span><span id="ok" data-value="title"></span></template>',
         });
@@ -85,6 +85,21 @@ describe('component loading', () => {
         await vi.waitFor(() => {
             expect(host.querySelector('#ok')?.textContent).toBe('t');
         }, {timeout: 300});
+        expect(errorSpy.mock.calls.flat()).toContain('Can\'t evaluate the "oops()" expression');
+    });
+
+    it('applies remaining bindings when a show-if expression throws (issue #4)', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({
+            root: '<template><div><p data-show-if="oops()">maybe</p></div><span id="ok" data-value="title"></span></template>',
+        });
+        const host = mountPoint();
+        new App({element: host, data: {title: 't'}});
+
+        await vi.waitFor(() => {
+            expect(host.querySelector('#ok')?.textContent).toBe('t');
+        });
+        expect(errorSpy.mock.calls.flat()).toContain('Can\'t evaluate the "oops()" expression');
     });
 
     it('rejects a template file whose first child is not a <template> element', async () => {
