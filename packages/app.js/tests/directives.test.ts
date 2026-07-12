@@ -92,6 +92,109 @@ describe('data-value', () => {
     });
 });
 
+describe('data-display-if', () => {
+    it('toggles inline display while preserving the original inline value', async () => {
+        stubTemplates({root: '<template><p data-display-if="visible" style="display: flex">x</p></template>'});
+        const host = mountPoint();
+        const app = new App({element: host, data: {visible: false}});
+        await app.ready;
+
+        const paragraph = host.querySelector('p')!;
+
+        expect(paragraph).not.toBeNull();
+        expect(paragraph.style.display).toBe('none');
+
+        app.data.visible = true;
+
+        expect(paragraph.style.display).toBe('flex');
+    });
+
+    it('restores an empty inline display so stylesheet rules apply again', async () => {
+        stubTemplates({root: '<template><p data-display-if="visible">x</p></template>'});
+        const host = mountPoint();
+        const app = new App({element: host, data: {visible: true}});
+        await app.ready;
+
+        const paragraph = host.querySelector('p')!;
+
+        expect(paragraph.style.display).toBe('');
+
+        app.data.visible = false;
+
+        expect(paragraph.style.display).toBe('none');
+
+        app.data.visible = true;
+
+        expect(paragraph.style.display).toBe('');
+    });
+
+    it('keeps the element in the DOM so sibling structure is stable', async () => {
+        stubTemplates({root: '<template><div><i data-display-if="visible">a</i><i>b</i></div></template>'});
+        const host = mountPoint();
+        const app = new App({element: host, data: {visible: false}});
+        await app.ready;
+
+        const wrapper = host.querySelector('div')!;
+
+        expect(wrapper.children).toHaveLength(2);
+        expect((wrapper.children[0] as HTMLElement).style.display).toBe('none');
+
+        app.data.visible = true;
+
+        expect(wrapper.children).toHaveLength(2);
+    });
+
+    it('works inside data-for items with item scope', async () => {
+        stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id"><span data-display-if="$item.on" data-value="$item.label"></span></li></ul></template>'});
+        const host = mountPoint();
+        const app = new App({element: host, data: {items: [{id: 1, on: true, label: 'a'}, {id: 2, on: false, label: 'b'}]}});
+        await app.ready;
+
+        const spans = [...host.querySelectorAll('span')] as HTMLElement[];
+
+        expect(spans).toHaveLength(2);
+        expect(spans[0].style.display).toBe('');
+        expect(spans[1].style.display).toBe('none');
+
+        app.data.items = [{id: 1, on: true, label: 'a'}, {id: 2, on: true, label: 'b'}];
+
+        expect(spans[1].style.display).toBe('');
+    });
+
+    it('works on the data-for element itself (per-item visibility)', async () => {
+        stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id" data-display-if="$item.on" data-value="$item.label"></li></ul></template>'});
+        const host = mountPoint();
+        const app = new App({element: host, data: {items: [{id: 1, on: false, label: 'a'}, {id: 2, on: true, label: 'b'}]}});
+        await app.ready;
+
+        const listItems = [...host.querySelectorAll('li')] as HTMLElement[];
+
+        expect(listItems).toHaveLength(2);
+        expect(listItems[0].style.display).toBe('none');
+        expect(listItems[1].style.display).toBe('');
+
+        app.data.items = [{id: 1, on: true, label: 'a'}, {id: 2, on: true, label: 'b'}];
+
+        expect(listItems[0].style.display).toBe('');
+    });
+
+    it('evicted items stop being toggled, without errors', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id"><span data-display-if="$item.on"></span></li></ul></template>'});
+        const host = mountPoint();
+        const app = new App({element: host, data: {items: [{id: 1, on: true}], other: 0}});
+        await app.ready;
+
+        const detachedSpan = host.querySelector('span')! as HTMLElement;
+
+        app.data.items = [];
+        app.data.other = 1;
+
+        expect(detachedSpan.style.display).toBe('');
+        expect(errorSpy).not.toHaveBeenCalled();
+    });
+});
+
 describe('data-on-*', () => {
     it('dispatches click to the named method, bound to the app, with the event', async () => {
         stubTemplates({root: '<template><button data-on-click="hit">go</button></template>'});

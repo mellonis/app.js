@@ -19,6 +19,12 @@ interface ValueEntry {
     scopeRef?: ForBlockScopeRef;
 }
 
+interface DisplayIfEntry {
+    expression: string;
+    originalDisplay: string;
+    scopeRef?: ForBlockScopeRef;
+}
+
 interface ForBlockScopeRef {
     block: ForBlock;
     key: string;
@@ -62,6 +68,7 @@ export default class App {
     declare readonly ready: Promise<void>;
 
     readonly #showIfElementToDataMap = new Map<HTMLElement, ShowIfEntry>();
+    readonly #displayIfElementToDataMap = new Map<HTMLElement, DisplayIfEntry>();
     readonly #valueElementToDataMap = new Map<HTMLElement, ValueEntry>();
     readonly #forBlocks = new Set<ForBlock>();
 
@@ -121,6 +128,7 @@ export default class App {
         this.#destroyed = true;
         this.#abortController.abort();
         this.#showIfElementToDataMap.clear();
+        this.#displayIfElementToDataMap.clear();
         this.#valueElementToDataMap.clear();
         this.#forBlocks.clear();
     }
@@ -282,6 +290,21 @@ export default class App {
             boundElements.push(element);
         });
 
+        // Unlike data-show-if, data-display-if is allowed on the clone root:
+        // it toggles style.display, so there is no anchor conflict
+        [root, ...root.querySelectorAll<HTMLElement>('[data-display-if]')].forEach(element => {
+            if (element.dataset['displayIf'] === undefined) {
+                return;
+            }
+
+            this.#displayIfElementToDataMap.set(element, {
+                expression: element.dataset['displayIf']!,
+                originalDisplay: element.style.display,
+                scopeRef,
+            });
+            boundElements.push(element);
+        });
+
         [root, ...root.querySelectorAll<HTMLElement>(elementsWithDataOnAttributeSelector)].forEach(element => {
             Array.from(element.attributes)
                 .filter(attribute => dataOnAttributeNameRegExp.exec(attribute.name))
@@ -407,6 +430,7 @@ export default class App {
                 entry.boundElements.forEach(boundElement => {
                     this.#valueElementToDataMap.delete(boundElement);
                     this.#showIfElementToDataMap.delete(boundElement);
+                    this.#displayIfElementToDataMap.delete(boundElement);
                 });
                 entry.element.remove();
                 block.entries.delete(key);
@@ -489,6 +513,13 @@ export default class App {
                 anchor: document.createComment(' an anchor comment '),
                 expression: element.dataset['showIf']!,
                 isHidden: false,
+            });
+        });
+
+        documentFragment.querySelectorAll<HTMLElement>('[data-display-if]').forEach(element => {
+            this.#displayIfElementToDataMap.set(element, {
+                expression: element.dataset['displayIf']!,
+                originalDisplay: element.style.display,
             });
         });
 
@@ -590,6 +621,20 @@ export default class App {
             } else {
                 this.#hideElement(element);
             }
+        });
+
+        this.#displayIfElementToDataMap.forEach((entry, element) => {
+            let shouldBeVisible: boolean;
+
+            try {
+                shouldBeVisible = !!this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)});
+            } catch (error) {
+                console.error(`Can't evaluate the "${entry.expression}" expression`, element, error);
+
+                return;
+            }
+
+            element.style.display = shouldBeVisible ? entry.originalDisplay : 'none';
         });
     }
 
