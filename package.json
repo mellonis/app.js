@@ -1,15 +1,17 @@
 {
-  "name": "app.js",
+  "name": "app.js-monorepo",
   "version": "0.0.1",
   "private": true,
-  "description": "A tiny reactive framework",
   "type": "module",
-  "main": "app.js",
-  "types": "app.d.ts",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "build": "npm run build -w app.js",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "ex:counter": "npm run counter -w examples",
+    "ex:form": "npm run form -w examples"
   },
   "repository": {
     "type": "git",

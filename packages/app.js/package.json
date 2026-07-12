@@ -1,0 +1,16 @@
+{
+  "name": "app.js",
+  "version": "0.0.1",
+  "private": true,
+  "description": "A tiny reactive framework",
+  "type": "module",
+  "main": "./dist/app.js",
+  "types": "./dist/app.d.ts",
+  "scripts": {
+    "prepare": "npm run build",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "license": "MIT"
+}
