@@ -14,10 +14,10 @@
         data: {count: 0},
         methods: {
             increment() {
-                this.data.count = Number(this.data.count) + 1;
+                this.data.count += 1;
             },
             decrement() {
-                this.data.count = Number(this.data.count) - 1;
+                this.data.count -= 1;
             },
         },
     });
