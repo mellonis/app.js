@@ -24,6 +24,7 @@
   "author": "mellonis@mellonis.ru",
   "license": "MIT",
   "devDependencies": {
+    "@types/node": "26.1.1",
     "happy-dom": "20.10.6",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
