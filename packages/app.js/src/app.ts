@@ -1,4 +1,4 @@
-type AppMethod = (event: Event) => void;
+type AppMethod = (event: Event, item?: unknown, index?: number) => void;
 
 interface AppOptions {
     element?: HTMLElement;
@@ -23,6 +23,10 @@ interface LoadComponentOptions {
     parentComponentNameList?: string[];
 }
 
+const eventNameList = ['click', 'submit'];
+const elementsWithDataOnAttributeSelector = eventNameList.map(eventName => `[data-on-${eventName}]`).join(',');
+const dataOnAttributeNameRegExp = new RegExp(`^data-on-(${eventNameList.join('|')})$`);
+
 export default class App {
     declare readonly componentName: string;
     declare readonly data: Record<string, unknown>;
@@ -32,6 +36,8 @@ export default class App {
 
     readonly #showIfElementToDataMap = new Map<HTMLElement, ShowIfEntry>();
     readonly #valueElementToDataMap = new Map<HTMLElement, ValueEntry>();
+
+    #evaluationScope: Record<string, unknown> | undefined;
 
     static readonly #templateNameToTemplatePromiseMap = new Map<string, Promise<string>>();
 
@@ -95,12 +101,10 @@ export default class App {
                             data[key] = newValue;
                         }
 
-                        app.#updateVisibility();
-
                         if (isNewValueFromInputElement) {
-                            app.#updateValues(newValue);
+                            app.#runUpdatePass(newValue);
                         } else {
-                            app.#updateValues();
+                            app.#runUpdatePass();
                         }
                     },
                 });
@@ -112,12 +116,22 @@ export default class App {
         return ghost;
     }
 
-    #evaluate({expression = null, element = null}: {expression?: string | null; element?: HTMLElement | null}): unknown {
+    #evaluate({expression = null, element = null, scope}: {expression?: string | null; element?: HTMLElement | null; scope?: Record<string, unknown>}): unknown {
         let evaluatingCode = '';
 
         Object.keys(this.data).forEach(key => {
             evaluatingCode += `var ${key} = this.data['${key}'];`;
         });
+
+        if (scope) {
+            // Declared after the data keys so scope names shadow them; reached
+            // through this.#evaluationScope because `this` is a keyword and
+            // private names are visible in direct eval — no data key can
+            // shadow or name this channel
+            Object.keys(scope).forEach(key => {
+                evaluatingCode += `var ${key} = this.#evaluationScope['${key}'];`;
+            });
+        }
 
         if (expression) {
             evaluatingCode += expression;
@@ -129,12 +143,18 @@ export default class App {
             evaluatingCode += `this.data.${entry.expression} = element;`;
         }
 
-        return eval(evaluatingCode);
+        this.#evaluationScope = scope;
+
+        try {
+            return eval(evaluatingCode);
+        } finally {
+            this.#evaluationScope = undefined;
+        }
     }
 
-    #handleEvent({methodName, event}: {methodName: string; event: Event}): void {
+    #handleEvent({methodName, event, item, index}: {methodName: string; event: Event; item?: unknown; index?: number}): void {
         if (this.methods.hasOwnProperty(methodName)) {
-            this.methods[methodName].apply(null, [event]);
+            this.methods[methodName].apply(null, [event, item, index]);
         }
     }
 
@@ -198,10 +218,6 @@ export default class App {
             }
         });
 
-        const eventNameList = ['click', 'submit'];
-        const elementsWithDataOnAttributeSelector = eventNameList.map(eventName => `[data-on-${eventName}]`).join(',');
-        const dataOnAttributeNameRegExp = new RegExp(`^data-on-(${eventNameList.join('|')})$`);
-
         documentFragment.querySelectorAll<HTMLElement>(elementsWithDataOnAttributeSelector).forEach(element => {
             Array.from(element.attributes)
                 .filter(attribute => dataOnAttributeNameRegExp.exec(attribute.name))
@@ -225,8 +241,7 @@ export default class App {
 
         return Promise.all(subComponentPromiseList)
             .then(() => {
-                this.#updateVisibility();
-                this.#updateValues();
+                this.#runUpdatePass();
             })
             .then(() => documentFragment);
     }
@@ -238,6 +253,11 @@ export default class App {
             entry.anchor.replaceWith(element);
             entry.isHidden = false;
         }
+    }
+
+    #runUpdatePass(sourceElement: HTMLElement | null = null): void {
+        this.#updateVisibility();
+        this.#updateValues(sourceElement);
     }
 
     #updateValues(element: HTMLElement | null = null): void {
