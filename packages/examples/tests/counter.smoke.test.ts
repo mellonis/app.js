@@ -21,25 +21,24 @@ it('renders and counts through the real built framework over real HTTP', async (
     await page.waitUntilComplete();
 
     const document = page.mainFrame.document;
-    const count = () => document.querySelector('span[data-value="count"]')?.textContent;
+    const count = () => document.querySelector('p')?.textContent;
 
-    // Gate on the buttons existing (proof the initial async render has landed) rather than
-    // count() === '0': happy-dom 20.10.6's Element#textContent setter no-ops on falsy values
-    // (`if (textContent) { ... }` in its source), so the real, spec-correct `textContent = 0`
-    // the framework performs for count 0 never becomes the string "0" in this environment.
-    // Upstream: capricorn86/happy-dom#2236 (fix PR #2237) — when the fix ships, restore pollFor(() => count() === '0')
-    await pollFor(() => document.querySelectorAll('button').length === 2);
+    // Interpolation always assigns String(value) to a Text node, so the zero
+    // render works even under happy-dom 20.10.6 (whose Element#textContent
+    // setter drops falsy non-strings — capricorn86/happy-dom#2236; only
+    // data-value bindings that assign numeric 0 are still affected)
+    await pollFor(() => count() === 'Count: 0');
 
     const buttons = [...document.querySelectorAll('button')];
     const plus = buttons.find(button => button.textContent === '+1')!;
     const minus = buttons.find(button => button.textContent === '-1')!;
 
     plus.click();
-    expect(count()).toBe('1');
+    expect(count()).toBe('Count: 1');
 
     plus.click();
-    expect(count()).toBe('2');
+    expect(count()).toBe('Count: 2');
 
     minus.click();
-    expect(count()).toBe('1');
+    expect(count()).toBe('Count: 1');
 });

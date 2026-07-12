@@ -25,11 +25,15 @@ it('submits the form and logs the collected values to the console', async () => 
 
     await pollFor(() => document.querySelector('form') !== null);
 
+    expect(document.querySelector('p')?.textContent).toBe('Preview: (no name), (no email)');
+
     const [nameInput, emailInput] = [...document.querySelectorAll('input')];
     nameInput.value = 'Ada';
     nameInput.dispatchEvent(new windowRealm.Event('input'));
     emailInput.value = 'ada@lovelace.dev';
     emailInput.dispatchEvent(new windowRealm.Event('input'));
+
+    expect(document.querySelector('p')?.textContent).toBe('Preview: Ada, ada@lovelace.dev');
 
     document.querySelector('form')!.dispatchEvent(new windowRealm.Event('submit'));
 
