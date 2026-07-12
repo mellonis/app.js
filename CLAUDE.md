@@ -20,6 +20,8 @@ npm test -w app.js -- tests/components.test.ts   # single test file
 
 Framework tests import `../src/app` directly; examples smoke tests drive the built `dist/` over real HTTP via `serve.mjs` + happy-dom's `Browser` (with `enableJavaScriptEvaluation: true`). Convention for newly found bugs: encode each as an `it.fails` case asserting the *desired* behavior (with its issue number in the test name) — once the bug is fixed, that test starts failing; remove the `.fails` modifier as part of the fix. No such markers are currently open.
 
+Known upstream issue: happy-dom ≤ 20.10.6 silently drops falsy non-string `textContent` assignments (`el.textContent = 0` renders empty; browsers render `"0"`) — [capricorn86/happy-dom#2236](https://github.com/capricorn86/happy-dom/issues/2236), fix submitted as [PR #2237](https://github.com/capricorn86/happy-dom/pull/2237). The counter smoke test carries a documented workaround; when a fixed happy-dom ships, bump the pin, remove the workaround, and restore the zero-render assertions (see the comment in `packages/examples/tests/counter.smoke.test.ts`).
+
 ## Architecture
 
 Everything is the `App` class in `packages/app.js/src/app.ts`. One instance = one component tree rooted at `element` (default `document.body`). Internals are native `#private`; the public surface is the constructor, `element`, `data`, `methods`, `componentName`, `ready` (a promise that settles when the initial mount finishes — rejections carry the original error, with a built-in `console.error` fallback), `static loadTemplate`, and `static clearTemplateCache`.
