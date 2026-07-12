@@ -2,7 +2,7 @@ var _a;
 class App {
     #showIfElementToDataMap = new Map();
     #valueElementToDataMap = new Map();
-    static templateNameToTemplatePromiseMap = new Map();
+    static #templateNameToTemplatePromiseMap = new Map();
     constructor({ element = document.body, componentName = 'root', data = {}, methods = {} } = {}) {
         const boundMethods = Object.assign({}, methods);
         Object.keys(boundMethods).forEach(key => {
@@ -215,10 +215,13 @@ class App {
             }
         });
     }
+    static clearTemplateCache() {
+        _a.#templateNameToTemplatePromiseMap.clear();
+    }
     static loadTemplate(templateName) {
         let loadTemplatePromise;
-        if (_a.templateNameToTemplatePromiseMap.has(templateName)) {
-            loadTemplatePromise = _a.templateNameToTemplatePromiseMap.get(templateName);
+        if (_a.#templateNameToTemplatePromiseMap.has(templateName)) {
+            loadTemplatePromise = _a.#templateNameToTemplatePromiseMap.get(templateName);
         }
         else {
             loadTemplatePromise = fetch(`/templates/${templateName}.html`)
@@ -229,10 +232,10 @@ class App {
                 return response.text();
             })
                 .catch(error => {
-                _a.templateNameToTemplatePromiseMap.delete(templateName);
+                _a.#templateNameToTemplatePromiseMap.delete(templateName);
                 return Promise.reject(error);
             });
-            _a.templateNameToTemplatePromiseMap.set(templateName, loadTemplatePromise);
+            _a.#templateNameToTemplatePromiseMap.set(templateName, loadTemplatePromise);
         }
         return loadTemplatePromise;
     }

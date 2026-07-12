@@ -19,7 +19,7 @@ export function stubTemplates(templates: Record<string, string>) {
 }
 
 export function resetTemplateCache(): void {
-    App.templateNameToTemplatePromiseMap.clear();
+    App.clearTemplateCache();
 }
 
 export function mountPoint(): HTMLElement {

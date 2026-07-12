@@ -22,7 +22,7 @@ To exercise the framework manually, serve the directory over HTTP (templates loa
 
 ## Architecture
 
-Everything is the `App` class in `src/app.ts`. One instance = one component tree rooted at `element` (default `document.body`). Internals are native `#private`; the public surface is the constructor, `element`, `data`, `methods`, `componentName`, `ready` (a promise that settles when the initial mount finishes — rejections carry the original error, with a built-in `console.error` fallback), `static loadTemplate`, and the static template cache map.
+Everything is the `App` class in `src/app.ts`. One instance = one component tree rooted at `element` (default `document.body`). Internals are native `#private`; the public surface is the constructor, `element`, `data`, `methods`, `componentName`, `ready` (a promise that settles when the initial mount finishes — rejections carry the original error, with a built-in `console.error` fallback), `static loadTemplate`, and `static clearTemplateCache`.
 
 **Reactivity — `createGhost(data)`.** The constructor wraps `data` in a "ghost" object: each primitive key becomes a getter/setter pair over the original data, each object key recurses into a nested ghost. Every set triggers `updateVisibility()` and `updateValues()` — there is no dependency tracking; all bindings re-evaluate on any change. Ghosts are non-extensible, so the data shape is fixed at construction. A setter given an `HTMLInputElement` stores its `.value` instead (this is how two-way input binding writes back).
 

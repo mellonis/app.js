@@ -23,7 +23,6 @@ describe('App.loadTemplate', () => {
         stubTemplates({});
 
         await expect(App.loadTemplate('late')).rejects.toEqual(new Error('404: /templates/late.html'));
-        expect(App.templateNameToTemplatePromiseMap.has('late')).toBe(false);
 
         const fetchMock = stubTemplates({late: '<template></template>'});
 
@@ -39,7 +38,6 @@ describe('App.loadTemplate', () => {
         })));
 
         await expect(App.loadTemplate('late')).rejects.toEqual(new Error('HTTP 404 for late'));
-        expect(App.templateNameToTemplatePromiseMap.has('late')).toBe(false);
 
         const fetchMock = stubTemplates({late: '<template></template>'});
 

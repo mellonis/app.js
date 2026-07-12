@@ -33,7 +33,7 @@ export default class App {
     readonly #showIfElementToDataMap = new Map<HTMLElement, ShowIfEntry>();
     readonly #valueElementToDataMap = new Map<HTMLElement, ValueEntry>();
 
-    static readonly templateNameToTemplatePromiseMap = new Map<string, Promise<string>>();
+    static readonly #templateNameToTemplatePromiseMap = new Map<string, Promise<string>>();
 
     constructor({element = document.body, componentName = 'root', data = {}, methods = {}}: AppOptions = {}) {
         const boundMethods: Record<string, AppMethod> = Object.assign({}, methods);
@@ -282,11 +282,15 @@ export default class App {
         });
     }
 
+    static clearTemplateCache(): void {
+        App.#templateNameToTemplatePromiseMap.clear();
+    }
+
     static loadTemplate(templateName: string): Promise<string> {
         let loadTemplatePromise: Promise<string>;
 
-        if (App.templateNameToTemplatePromiseMap.has(templateName)) {
-            loadTemplatePromise = App.templateNameToTemplatePromiseMap.get(templateName)!;
+        if (App.#templateNameToTemplatePromiseMap.has(templateName)) {
+            loadTemplatePromise = App.#templateNameToTemplatePromiseMap.get(templateName)!;
         } else {
             loadTemplatePromise = fetch(`/templates/${templateName}.html`)
                 .then(response => {
@@ -297,12 +301,12 @@ export default class App {
                     return response.text();
                 })
                 .catch(error => {
-                    App.templateNameToTemplatePromiseMap.delete(templateName);
+                    App.#templateNameToTemplatePromiseMap.delete(templateName);
 
                     return Promise.reject(error);
                 });
 
-            App.templateNameToTemplatePromiseMap.set(templateName, loadTemplatePromise);
+            App.#templateNameToTemplatePromiseMap.set(templateName, loadTemplatePromise);
         }
 
         return loadTemplatePromise;
