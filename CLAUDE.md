@@ -4,25 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A tiny reactive framework written as a teaching project for students learning JavaScript and the DOM. The source of truth is `src/app.ts` (TypeScript 7, strict, native `#private` internals); `tsc` emits `app.js` + `app.d.ts` at the repo root, and both artifacts stay **committed** so a page can `import App from '/app.js'` with no build step. Never hand-edit the root artifacts — change `src/app.ts` and run the build; CI fails if they drift. Runtime dependencies: none — keep it that way.
+A tiny reactive framework written as a teaching project for students learning JavaScript and the DOM, structured as an npm-workspaces monorepo. The framework lives in `packages/app.js` (TypeScript 7, strict, native `#private` internals; source of truth `packages/app.js/src/app.ts`); its build output `dist/` is **generated and gitignored — never commit build output**. A `prepare` script rebuilds `dist/` on every `npm install`. Runnable examples live in `packages/examples`, each served as its own web root by the zero-dependency `serve.mjs` (which aliases `/app.js` to the framework build). Framework runtime dependencies: none — keep it that way.
 
 ## Commands
 
 ```sh
-npm ci            # install dev deps (typescript, vitest, happy-dom)
-npm run build     # tsc -p tsconfig.build.json → app.js + app.d.ts at root
-npm run typecheck # tsc -p tsconfig.json (src + tests, no emit)
-npm test          # vitest run (happy-dom environment)
-npx vitest run tests/components.test.ts   # single file
+npm install         # dev deps + builds packages/app.js/dist via prepare
+npm run build       # tsc → packages/app.js/dist
+npm run typecheck   # all workspaces
+npm test            # framework unit suite + examples smoke suite
+npm run ex:counter  # serve the counter example on :8123
+npm run ex:form     # serve the form example on :8123
+npx vitest run packages/app.js/tests/components.test.ts   # single file (run from repo root)
 ```
 
-Tests import `../src/app` directly. Convention for newly found bugs: encode each as an `it.fails` case asserting the *desired* behavior (with its issue number in the test name) — once the bug is fixed, that test starts failing; remove the `.fails` modifier as part of the fix. No such markers are currently open.
-
-To exercise the framework manually, serve the directory over HTTP (templates load via `fetch`, so `file://` won't work) with a host page and a `/templates` directory — see README.
+Framework tests import `../src/app` directly; examples smoke tests drive the built `dist/` over real HTTP via `serve.mjs` + happy-dom's `Browser` (with `enableJavaScriptEvaluation: true`). Convention for newly found bugs: encode each as an `it.fails` case asserting the *desired* behavior (with its issue number in the test name) — once the bug is fixed, that test starts failing; remove the `.fails` modifier as part of the fix. No such markers are currently open.
 
 ## Architecture
 
-Everything is the `App` class in `src/app.ts`. One instance = one component tree rooted at `element` (default `document.body`). Internals are native `#private`; the public surface is the constructor, `element`, `data`, `methods`, `componentName`, `ready` (a promise that settles when the initial mount finishes — rejections carry the original error, with a built-in `console.error` fallback), `static loadTemplate`, and `static clearTemplateCache`.
+Everything is the `App` class in `packages/app.js/src/app.ts`. One instance = one component tree rooted at `element` (default `document.body`). Internals are native `#private`; the public surface is the constructor, `element`, `data`, `methods`, `componentName`, `ready` (a promise that settles when the initial mount finishes — rejections carry the original error, with a built-in `console.error` fallback), `static loadTemplate`, and `static clearTemplateCache`.
 
 **Reactivity — `createGhost(data)`.** The constructor wraps `data` in a "ghost" object: each primitive key becomes a getter/setter pair over the original data, each object key recurses into a nested ghost. Every set triggers `updateVisibility()` and `updateValues()` — there is no dependency tracking; all bindings re-evaluate on any change. Ghosts are non-extensible, so the data shape is fixed at construction. A setter given an `HTMLInputElement` stores its `.value` instead (this is how two-way input binding writes back).
 
