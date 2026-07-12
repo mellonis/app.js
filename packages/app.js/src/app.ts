@@ -39,7 +39,7 @@ interface ForBlock {
     keyExpression: string;
     array: unknown[];
     entries: Map<string, ForBlockEntry>;
-    reportedDuplicateKeys: Set<string>;
+    reportedErrorKinds: Set<string>;
 }
 
 interface LoadComponentOptions {
@@ -171,14 +171,19 @@ export default class App {
             evaluatingCode += `this.data.${entry.expression} = this.#evaluationElement;`;
         }
 
+        // Save/restore rather than clear: stack discipline for the day
+        // nested scopes (per-component, #7) evaluate within an outer pass
+        const previousScope = this.#evaluationScope;
+        const previousElement = this.#evaluationElement;
+
         this.#evaluationScope = scope;
         this.#evaluationElement = element ?? undefined;
 
         try {
             return eval(evaluatingCode);
         } finally {
-            this.#evaluationScope = undefined;
-            this.#evaluationElement = undefined;
+            this.#evaluationScope = previousScope;
+            this.#evaluationElement = previousElement;
         }
     }
 
@@ -222,7 +227,7 @@ export default class App {
             keyExpression,
             array: [],
             entries: new Map(),
-            reportedDuplicateKeys: new Set(),
+            reportedErrorKinds: new Set(),
         });
     }
 
@@ -287,33 +292,55 @@ export default class App {
         return {$item: entry.item, $index: entry.index, $array: scopeRef.block.array};
     }
 
+    // Runtime list errors log once while they persist and re-arm after a
+    // clean pass — reconciliation runs per keystroke, so a persistent error
+    // must not drown the console
+    #reportBlockError(block: ForBlock, errorKindsThisPass: Set<string>, kind: string, ...details: unknown[]): void {
+        errorKindsThisPass.add(kind);
+
+        if (block.reportedErrorKinds.has(kind)) {
+            return;
+        }
+
+        block.reportedErrorKinds.add(kind);
+        console.error(...details);
+    }
+
     #updateLists(): void {
         this.#forBlocks.forEach(block => {
+            const errorKindsThisPass = new Set<string>();
             let items: unknown;
+            let listFailed = false;
 
             try {
                 items = this.#evaluate({expression: block.listExpression});
             } catch (error) {
-                console.error(`Can't evaluate the "${block.listExpression}" expression`, block.anchorStart, error);
-
-                return;
+                this.#reportBlockError(block, errorKindsThisPass, 'list-expression', `Can't evaluate the "${block.listExpression}" expression`, block.anchorStart, error);
+                listFailed = true;
             }
 
-            if (!Array.isArray(items)) {
-                console.error(`The "${block.listExpression}" expression did not produce an array`, block.anchorStart, items);
-                items = [];
+            if (!listFailed) {
+                if (!Array.isArray(items)) {
+                    this.#reportBlockError(block, errorKindsThisPass, 'non-array', `The "${block.listExpression}" expression did not produce an array`, block.anchorStart, items);
+                    items = [];
+                }
+
+                this.#reconcileBlock(block, items as unknown[], errorKindsThisPass);
             }
 
-            this.#reconcileBlock(block, items as unknown[]);
+            block.reportedErrorKinds.forEach(kind => {
+                if (!errorKindsThisPass.has(kind)) {
+                    block.reportedErrorKinds.delete(kind);
+                }
+            });
         });
     }
 
-    #reconcileBlock(block: ForBlock, items: unknown[]): void {
+    #reconcileBlock(block: ForBlock, items: unknown[], errorKindsThisPass: Set<string>): void {
         block.array = items;
 
         const desired: ForBlockEntry[] = [];
         const seenKeys = new Set<string>();
-        const duplicateKeysThisPass = new Set<string>();
 
         items.forEach((item, index) => {
             let key: string;
@@ -324,18 +351,13 @@ export default class App {
                     scope: {$item: item, $index: index, $array: items},
                 }));
             } catch (error) {
-                console.error(`Can't evaluate the "${block.keyExpression}" key expression`, block.anchorStart, error);
+                this.#reportBlockError(block, errorKindsThisPass, 'key-expression', `Can't evaluate the "${block.keyExpression}" key expression`, block.anchorStart, error);
 
                 return;
             }
 
             if (seenKeys.has(key)) {
-                duplicateKeysThisPass.add(key);
-
-                if (!block.reportedDuplicateKeys.has(key)) {
-                    console.error(`Duplicate data-key "${key}" in list`, block.anchorStart);
-                    block.reportedDuplicateKeys.add(key);
-                }
+                this.#reportBlockError(block, errorKindsThisPass, `duplicate-key:${key}`, `Duplicate data-key "${key}" in list`, block.anchorStart);
 
                 return;
             }
@@ -356,12 +378,6 @@ export default class App {
             }
 
             desired.push(entry);
-        });
-
-        block.reportedDuplicateKeys.forEach(key => {
-            if (!duplicateKeysThisPass.has(key)) {
-                block.reportedDuplicateKeys.delete(key);
-            }
         });
 
         block.entries.forEach((entry, key) => {

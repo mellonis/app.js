@@ -326,3 +326,74 @@ describe('data-for: item scope and handlers', () => {
         expect(errorSpy).not.toHaveBeenCalled();
     });
 });
+
+describe('data-for: error cadence (issue #12)', () => {
+    it('a persistently throwing list expression logs once, re-arms after a clean pass', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const template = '<template><ul><li data-for="broken ? missingFn() : items" data-key="$item.id"></li></ul></template>';
+
+        stubTemplates({root: template});
+        const host = mountPoint();
+        const app = new App({element: host, data: {items: [{id: 1}], broken: true, other: 0}});
+        await app.ready;
+
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+
+        app.data.other = 1;
+        app.data.other = 2;
+
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+
+        app.data.broken = false;
+
+        expect(host.querySelectorAll('li')).toHaveLength(1);
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+
+        app.data.broken = true;
+
+        expect(errorSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('a persistent non-array result logs once, re-arms after a clean pass', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const template = '<template><ul><li data-for="value" data-key="$item.id"></li></ul></template>';
+
+        stubTemplates({root: template});
+        const host = mountPoint();
+        const app = new App({element: host, data: {value: 5, other: 0}});
+        await app.ready;
+
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+
+        app.data.other = 1;
+
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+
+        app.data.value = [];
+
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+
+        app.data.value = 5;
+
+        expect(errorSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('a persistently throwing key expression logs once, re-arms after a clean pass', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const {app} = await mountList([null]);
+
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+
+        app.data.other = 1;
+
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+
+        app.data.items = [{id: 1, label: 'a'}];
+
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+
+        app.data.items = [null];
+
+        expect(errorSpy).toHaveBeenCalledTimes(2);
+    });
+});
