@@ -6,6 +6,7 @@
   "scripts": {
     "counter": "node serve.mjs counter",
     "form": "node serve.mjs form",
+    "todo": "node serve.mjs todo",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },

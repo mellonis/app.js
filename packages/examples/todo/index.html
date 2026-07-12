@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Todo — app.js example</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+    import App from '/app.js';
+
+    new App({
+        element: document.querySelector('#app'),
+        data: {draft: '', nextId: 1, todos: []},
+        methods: {
+            addTodo(event) {
+                event.preventDefault();
+
+                const title = this.data.draft.trim();
+
+                if (!title) {
+                    return;
+                }
+
+                this.data.todos = [...this.data.todos, {id: this.data.nextId, title, done: false}];
+                this.data.nextId += 1;
+                this.data.draft = '';
+            },
+            toggleTodo(event, item) {
+                this.data.todos = this.data.todos.map(todo => todo.id === item.id ? {...todo, done: !todo.done} : todo);
+            },
+            removeTodo(event, item) {
+                this.data.todos = this.data.todos.filter(todo => todo.id !== item.id);
+            },
+        },
+    });
+</script>
+</body>
+</html>

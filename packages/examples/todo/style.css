@@ -1,0 +1,35 @@
+body {
+    font-family: system-ui, sans-serif;
+    max-width: 28rem;
+    margin: 2rem auto;
+}
+
+form {
+    display: flex;
+    gap: 0.5rem;
+}
+
+form input {
+    flex: 1;
+}
+
+ul {
+    padding: 0;
+}
+
+li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    list-style: none;
+}
+
+li span,
+li s {
+    flex: 1;
+}
+
+s {
+    color: gray;
+}

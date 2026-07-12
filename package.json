@@ -11,7 +11,8 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run build && npm test --workspaces --if-present",
     "ex:counter": "npm run counter -w examples",
-    "ex:form": "npm run form -w examples"
+    "ex:form": "npm run form -w examples",
+    "ex:todo": "npm run todo -w examples"
   },
   "repository": {
     "type": "git",
