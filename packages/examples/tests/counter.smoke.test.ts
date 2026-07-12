@@ -27,6 +27,7 @@ it('renders and counts through the real built framework over real HTTP', async (
     // count() === '0': happy-dom 20.10.6's Element#textContent setter no-ops on falsy values
     // (`if (textContent) { ... }` in its source), so the real, spec-correct `textContent = 0`
     // the framework performs for count 0 never becomes the string "0" in this environment.
+    // Upstream: capricorn86/happy-dom#2236 (fix PR #2237) — when the fix ships, restore pollFor(() => count() === '0')
     await pollFor(() => document.querySelectorAll('button').length === 2);
 
     const buttons = [...document.querySelectorAll('button')];

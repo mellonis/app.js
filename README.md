@@ -12,7 +12,7 @@ A tiny reactive framework
 # Quick start
 
 ```sh
-git clone git@github.com:mellonis/app.js.git
+git clone https://github.com/mellonis/app.js.git
 cd app.js
 npm install        # installs dev deps and builds the framework
 npm run ex:counter # counter example → http://localhost:8123/

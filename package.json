@@ -9,7 +9,7 @@
   "scripts": {
     "build": "npm run build -w app.js",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm test --workspaces --if-present",
+    "test": "npm run build && npm test --workspaces --if-present",
     "ex:counter": "npm run counter -w examples",
     "ex:form": "npm run form -w examples"
   },
@@ -23,6 +23,9 @@
   ],
   "author": "mellonis@mellonis.ru",
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
   "devDependencies": {
     "@types/node": "26.1.1",
     "happy-dom": "20.10.6",
