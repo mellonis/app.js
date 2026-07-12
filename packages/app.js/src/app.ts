@@ -48,6 +48,8 @@ interface LoadComponentOptions {
     parentComponentNameList?: string[];
 }
 
+const APP_DESTROYED_MESSAGE = 'The app was destroyed';
+
 const eventNameList = ['click', 'submit'];
 const elementsWithDataOnAttributeSelector = eventNameList.map(eventName => `[data-on-${eventName}]`).join(',');
 const dataOnAttributeNameRegExp = new RegExp(`^data-on-(${eventNameList.join('|')})$`);
@@ -65,6 +67,9 @@ export default class App {
 
     #evaluationScope: Record<string, unknown> | undefined;
     #evaluationElement: HTMLElement | undefined;
+
+    readonly #abortController = new AbortController();
+    #destroyed = false;
 
     static readonly #templateNameToTemplatePromiseMap = new Map<string, Promise<string>>();
 
@@ -99,8 +104,25 @@ export default class App {
             value: this.#loadComponent(),
         });
         // Default handler: keeps mount failures visible for users who never
-        // touch `ready`, and prevents unhandled-rejection noise
-        this.ready.catch(console.error);
+        // touch `ready`, and prevents unhandled-rejection noise; deliberate
+        // destruction is not an error worth logging
+        this.ready.catch((error: unknown) => {
+            if (!(error instanceof Error && error.message === APP_DESTROYED_MESSAGE)) {
+                console.error(error);
+            }
+        });
+    }
+
+    destroy(): void {
+        if (this.#destroyed) {
+            return;
+        }
+
+        this.#destroyed = true;
+        this.#abortController.abort();
+        this.#showIfElementToDataMap.clear();
+        this.#valueElementToDataMap.clear();
+        this.#forBlocks.clear();
     }
 
     #createGhost(data: Record<string, unknown>): Record<string, unknown> {
@@ -271,7 +293,7 @@ export default class App {
                         const entry = block.entries.get(key);
 
                         this.#handleEvent({methodName, event, item: entry?.item, index: entry?.index});
-                    });
+                    }, {signal: this.#abortController.signal});
                 });
         });
 
@@ -428,6 +450,10 @@ export default class App {
         return App.loadTemplate(componentName)
             .then(template => this.#renderTemplate({template, parentComponentNameList}))
             .then(documentFragment => {
+                if (this.#destroyed) {
+                    throw new Error(APP_DESTROYED_MESSAGE);
+                }
+
                 // childNodes, not children: anchor comments for initially
                 // hidden top-level elements must move into the live DOM too
                 while (documentFragment.childNodes.length) {
@@ -474,7 +500,7 @@ export default class App {
             if (element.tagName === 'INPUT') {
                 element.addEventListener('input', () => {
                     this.#evaluate({element});
-                });
+                }, {signal: this.#abortController.signal});
             }
         });
 
@@ -487,7 +513,7 @@ export default class App {
 
                     element.addEventListener(eventName, (event) => {
                         this.#handleEvent({methodName, event});
-                    });
+                    }, {signal: this.#abortController.signal});
                 });
         });
 
@@ -516,6 +542,10 @@ export default class App {
     }
 
     #runUpdatePass(sourceElement: HTMLElement | null = null): void {
+        if (this.#destroyed) {
+            return;
+        }
+
         this.#updateLists();
         this.#updateVisibility();
         this.#updateValues(sourceElement);
