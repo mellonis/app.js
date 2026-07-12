@@ -11,10 +11,35 @@ interface ShowIfEntry {
     anchor: Comment;
     expression: string;
     isHidden: boolean;
+    scopeRef?: ForBlockScopeRef;
 }
 
 interface ValueEntry {
     expression: string;
+    scopeRef?: ForBlockScopeRef;
+}
+
+interface ForBlockScopeRef {
+    block: ForBlock;
+    key: string;
+}
+
+interface ForBlockEntry {
+    element: HTMLElement;
+    item: unknown;
+    index: number;
+    boundElements: HTMLElement[];
+}
+
+interface ForBlock {
+    anchorStart: Comment;
+    anchorEnd: Comment;
+    templateElement: HTMLElement;
+    listExpression: string;
+    keyExpression: string;
+    array: unknown[];
+    entries: Map<string, ForBlockEntry>;
+    reportedDuplicateKeys: Set<string>;
 }
 
 interface LoadComponentOptions {
@@ -36,6 +61,7 @@ export default class App {
 
     readonly #showIfElementToDataMap = new Map<HTMLElement, ShowIfEntry>();
     readonly #valueElementToDataMap = new Map<HTMLElement, ValueEntry>();
+    readonly #forBlocks = new Set<ForBlock>();
 
     #evaluationScope: Record<string, unknown> | undefined;
 
@@ -152,6 +178,216 @@ export default class App {
         }
     }
 
+    #extractForBlock(element: HTMLElement): void {
+        if (!element.parentNode) {
+            // An ancestor data-for was already extracted or errored away
+            return;
+        }
+
+        if (element.dataset['showIf'] !== undefined || element.dataset['component'] !== undefined) {
+            console.error('data-for cannot be combined with data-show-if or data-component on the same element', element);
+            element.remove();
+
+            return;
+        }
+
+        const keyExpression = element.dataset['key'];
+
+        if (keyExpression === undefined) {
+            console.error('data-for requires a data-key attribute', element);
+            element.remove();
+
+            return;
+        }
+
+        if (element.querySelector('[data-for], [data-component]') !== null) {
+            console.error('data-for blocks cannot contain nested data-for or data-component elements', element);
+            element.remove();
+
+            return;
+        }
+
+        const anchorStart = document.createComment(' data-for start ');
+        const anchorEnd = document.createComment(' data-for end ');
+        const listExpression = element.dataset['for']!;
+
+        element.replaceWith(anchorStart, anchorEnd);
+        element.removeAttribute('data-for');
+        element.removeAttribute('data-key');
+
+        this.#forBlocks.add({
+            anchorStart,
+            anchorEnd,
+            templateElement: element,
+            listExpression,
+            keyExpression,
+            array: [],
+            entries: new Map(),
+            reportedDuplicateKeys: new Set(),
+        });
+    }
+
+    #wireItemElement(root: HTMLElement, block: ForBlock, key: string): HTMLElement[] {
+        const boundElements: HTMLElement[] = [];
+        const scopeRef: ForBlockScopeRef = {block, key};
+
+        [root, ...root.querySelectorAll<HTMLElement>('[data-value]')].forEach(element => {
+            if (element.dataset['value'] === undefined) {
+                return;
+            }
+
+            if (element.tagName === 'INPUT') {
+                console.error('An <input data-value> inside a data-for block is not supported', element);
+
+                return;
+            }
+
+            this.#valueElementToDataMap.set(element, {expression: element.dataset['value']!, scopeRef});
+            boundElements.push(element);
+        });
+
+        root.querySelectorAll<HTMLElement>('[data-show-if]').forEach(element => {
+            this.#showIfElementToDataMap.set(element, {
+                anchor: document.createComment(' an anchor comment '),
+                expression: element.dataset['showIf']!,
+                isHidden: false,
+                scopeRef,
+            });
+            boundElements.push(element);
+        });
+
+        [root, ...root.querySelectorAll<HTMLElement>(elementsWithDataOnAttributeSelector)].forEach(element => {
+            Array.from(element.attributes)
+                .filter(attribute => dataOnAttributeNameRegExp.exec(attribute.name))
+                .forEach(attribute => {
+                    const eventName = dataOnAttributeNameRegExp.exec(attribute.name)![1];
+                    const methodName = attribute.value;
+
+                    element.addEventListener(eventName, (event) => {
+                        const entry = block.entries.get(key);
+
+                        this.#handleEvent({methodName, event, item: entry?.item, index: entry?.index});
+                    });
+                });
+        });
+
+        return boundElements;
+    }
+
+    #scopeForBinding(scopeRef: ForBlockScopeRef | undefined): Record<string, unknown> | undefined {
+        if (!scopeRef) {
+            return undefined;
+        }
+
+        const entry = scopeRef.block.entries.get(scopeRef.key);
+
+        if (!entry) {
+            return undefined;
+        }
+
+        return {$item: entry.item, $index: entry.index, $array: scopeRef.block.array};
+    }
+
+    #updateLists(): void {
+        this.#forBlocks.forEach(block => {
+            let items: unknown;
+
+            try {
+                items = this.#evaluate({expression: block.listExpression});
+            } catch (error) {
+                console.error(`Can't evaluate the "${block.listExpression}" expression`, block.anchorStart, error);
+
+                return;
+            }
+
+            if (!Array.isArray(items)) {
+                console.error(`The "${block.listExpression}" expression did not produce an array`, block.anchorStart, items);
+                items = [];
+            }
+
+            this.#reconcileBlock(block, items as unknown[]);
+        });
+    }
+
+    #reconcileBlock(block: ForBlock, items: unknown[]): void {
+        block.array = items;
+
+        const desired: ForBlockEntry[] = [];
+        const seenKeys = new Set<string>();
+        const duplicateKeysThisPass = new Set<string>();
+
+        items.forEach((item, index) => {
+            let key: string;
+
+            try {
+                key = String(this.#evaluate({
+                    expression: block.keyExpression,
+                    scope: {$item: item, $index: index, $array: items},
+                }));
+            } catch (error) {
+                console.error(`Can't evaluate the "${block.keyExpression}" key expression`, block.anchorStart, error);
+
+                return;
+            }
+
+            if (seenKeys.has(key)) {
+                duplicateKeysThisPass.add(key);
+
+                if (!block.reportedDuplicateKeys.has(key)) {
+                    console.error(`Duplicate data-key "${key}" in list`, block.anchorStart);
+                    block.reportedDuplicateKeys.add(key);
+                }
+
+                return;
+            }
+
+            seenKeys.add(key);
+
+            let entry = block.entries.get(key);
+
+            if (entry) {
+                entry.item = item;
+                entry.index = index;
+            } else {
+                const element = block.templateElement.cloneNode(true) as HTMLElement;
+
+                entry = {element, item, index, boundElements: []};
+                block.entries.set(key, entry);
+                entry.boundElements = this.#wireItemElement(element, block, key);
+            }
+
+            desired.push(entry);
+        });
+
+        block.reportedDuplicateKeys.forEach(key => {
+            if (!duplicateKeysThisPass.has(key)) {
+                block.reportedDuplicateKeys.delete(key);
+            }
+        });
+
+        block.entries.forEach((entry, key) => {
+            if (!seenKeys.has(key)) {
+                entry.boundElements.forEach(boundElement => {
+                    this.#valueElementToDataMap.delete(boundElement);
+                    this.#showIfElementToDataMap.delete(boundElement);
+                });
+                entry.element.remove();
+                block.entries.delete(key);
+            }
+        });
+
+        const parent = block.anchorEnd.parentNode!;
+        let cursor: ChildNode = block.anchorStart.nextSibling!;
+
+        desired.forEach(entry => {
+            if (entry.element === cursor) {
+                cursor = cursor.nextSibling!;
+            } else {
+                parent.insertBefore(entry.element, cursor);
+            }
+        });
+    }
+
     #handleEvent({methodName, event, item, index}: {methodName: string; event: Event; item?: unknown; index?: number}): void {
         if (this.methods.hasOwnProperty(methodName)) {
             this.methods[methodName].apply(null, [event, item, index]);
@@ -197,6 +433,10 @@ export default class App {
         }
 
         const documentFragment = templateElement.content;
+
+        documentFragment.querySelectorAll<HTMLElement>('[data-for]').forEach(element => {
+            this.#extractForBlock(element);
+        });
 
         documentFragment.querySelectorAll<HTMLElement>('[data-show-if]').forEach(element => {
             this.#showIfElementToDataMap.set(element, {
@@ -256,6 +496,7 @@ export default class App {
     }
 
     #runUpdatePass(sourceElement: HTMLElement | null = null): void {
+        this.#updateLists();
         this.#updateVisibility();
         this.#updateValues(sourceElement);
     }
@@ -266,7 +507,7 @@ export default class App {
                 let newValue: unknown;
 
                 try {
-                    newValue = this.#evaluate({expression: entry.expression});
+                    newValue = this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)});
                 } catch (error) {
                     console.error(`Can't evaluate the "${entry.expression}" expression`, valueElement, error);
 
@@ -287,7 +528,7 @@ export default class App {
             let shouldBeVisible: boolean;
 
             try {
-                shouldBeVisible = !!this.#evaluate({expression: entry.expression});
+                shouldBeVisible = !!this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)});
             } catch (error) {
                 console.error(`Can't evaluate the "${entry.expression}" expression`, element, error);
 
