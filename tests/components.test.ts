@@ -86,4 +86,14 @@ describe('component loading', () => {
             expect(host.querySelector('#ok')?.textContent).toBe('t');
         }, {timeout: 300});
     });
+
+    it('rejects a template file whose first child is not a <template> element', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({root: '<div>not a template</div>'});
+        new App({element: mountPoint()});
+
+        await vi.waitFor(() => {
+            expect(errorSpy.mock.calls.flat()).toContain('A component template file must have a <template> element as its first child');
+        });
+    });
 });
