@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from '../src/app';
-import { flush, mountPoint, resetTemplateCache, stubTemplates } from './helpers';
+import { mountPoint, resetTemplateCache, stubTemplates } from './helpers';
 
 afterEach(() => {
     vi.unstubAllGlobals();
@@ -26,18 +26,19 @@ describe('data-show-if', () => {
         expect(host.querySelector('p')).not.toBeNull();
     });
 
-    it.fails('shows an initially hidden top-level element when its expression becomes truthy (issue #8)', async () => {
+    it('shows an initially hidden top-level element when its expression becomes truthy (issue #8)', async () => {
         stubTemplates({root: '<template><p data-show-if="visible">secret</p></template>'});
         const host = mountPoint();
         const app = new App({element: host, data: {visible: false}});
-        await flush();
-        await flush();
+        await app.ready;
+
+        expect(host.querySelector('p')).toBeNull();
 
         app.data.visible = true;
+        expect(host.querySelector('p')).not.toBeNull();
 
-        await vi.waitFor(() => {
-            expect(host.querySelector('p')).not.toBeNull();
-        }, {timeout: 250});
+        app.data.visible = false;
+        expect(host.querySelector('p')).toBeNull();
     });
 });
 

@@ -110,10 +110,10 @@ class App {
         return _a.loadTemplate(componentName)
             .then(template => this.#renderTemplate({ template, parentComponentNameList }))
             .then(documentFragment => {
-            // Appends element children only: an anchor comment for an
-            // initially hidden top-level element stays behind — issue #8
-            while (documentFragment.children.length) {
-                componentWrapper.appendChild(documentFragment.children[0]);
+            // childNodes, not children: anchor comments for initially
+            // hidden top-level elements must move into the live DOM too
+            while (documentFragment.childNodes.length) {
+                componentWrapper.appendChild(documentFragment.childNodes[0]);
             }
         });
     }
