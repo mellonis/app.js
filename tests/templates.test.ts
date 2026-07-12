@@ -20,10 +20,9 @@ describe('App.loadTemplate', () => {
     });
 
     it('evicts a failed fetch from the cache so it can be retried', async () => {
-        vi.spyOn(console, 'log').mockImplementation(() => {});
         stubTemplates({});
 
-        await expect(App.loadTemplate('late')).rejects.toBeUndefined();
+        await expect(App.loadTemplate('late')).rejects.toEqual(new Error('404: /templates/late.html'));
         expect(App.templateNameToTemplatePromiseMap.has('late')).toBe(false);
 
         const fetchMock = stubTemplates({late: '<template></template>'});

@@ -28,8 +28,13 @@ class App {
             },
         });
         element.dataset['component'] = this.componentName;
-        this.#loadComponent()
-            .catch(console.error);
+        Object.defineProperty(this, 'ready', {
+            enumerable: true,
+            value: this.#loadComponent(),
+        });
+        // Default handler: keeps mount failures visible for users who never
+        // touch `ready`, and prevents unhandled-rejection noise
+        this.ready.catch(console.error);
     }
     #createGhost(data) {
         const ghost = {};
@@ -110,10 +115,6 @@ class App {
             while (documentFragment.children.length) {
                 componentWrapper.appendChild(documentFragment.children[0]);
             }
-        })
-            .catch(error => {
-            console.error(error);
-            return Promise.reject('Can\'t get a component');
         });
     }
     #renderTemplate({ template, parentComponentNameList }) {
@@ -167,11 +168,7 @@ class App {
             this.#updateVisibility();
             this.#updateValues();
         })
-            .then(() => documentFragment)
-            .catch(error => {
-            console.error(error);
-            return Promise.reject('Sub component error');
-        });
+            .then(() => documentFragment);
     }
     #showElement(element) {
         const entry = this.#showIfElementToDataMap.get(element);
@@ -228,8 +225,7 @@ class App {
                 .then(response => response.text())
                 .catch(error => {
                 _a.templateNameToTemplatePromiseMap.delete(templateName);
-                console.log(error);
-                return Promise.reject();
+                return Promise.reject(error);
             });
             _a.templateNameToTemplatePromiseMap.set(templateName, loadTemplatePromise);
         }

@@ -52,26 +52,22 @@ describe('component loading', () => {
     });
 
     it('still rejects a self-including component', async () => {
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({selfy: '<template><div data-component="selfy"></div></template>'});
-        new App({element: mountPoint(), componentName: 'selfy'});
+        const app = new App({element: mountPoint(), componentName: 'selfy'});
 
-        await vi.waitFor(() => {
-            expect(errorSpy.mock.calls.flat()).toContain('A component cycle was detected during loading');
-        });
+        await expect(app.ready).rejects.toBe('A component cycle was detected during loading');
     });
 
     it('still rejects a mutual cycle (a → b → a)', async () => {
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({
             a: '<template><div data-component="b"></div></template>',
             b: '<template><div data-component="a"></div></template>',
         });
-        new App({element: mountPoint(), componentName: 'a'});
+        const app = new App({element: mountPoint(), componentName: 'a'});
 
-        await vi.waitFor(() => {
-            expect(errorSpy.mock.calls.flat()).toContain('A component cycle was detected during loading');
-        });
+        await expect(app.ready).rejects.toBe('A component cycle was detected during loading');
     });
 
     it('renders remaining bindings when one expression throws (issue #4)', async () => {
@@ -100,6 +96,24 @@ describe('component loading', () => {
             expect(host.querySelector('#ok')?.textContent).toBe('t');
         });
         expect(errorSpy.mock.calls.flat()).toContain('Can\'t evaluate the "oops()" expression');
+    });
+
+    it('exposes a ready promise that resolves after the initial mount (issue #5)', async () => {
+        stubTemplates({root: '<template><span class="r">mounted</span></template>'});
+        const host = mountPoint();
+        const app = new App({element: host});
+
+        await app.ready;
+
+        expect(host.querySelector('.r')).not.toBeNull();
+    });
+
+    it('rejects ready with the original error when mounting fails (issue #5)', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({});
+        const app = new App({element: mountPoint()});
+
+        await expect(app.ready).rejects.toEqual(new Error('404: /templates/root.html'));
     });
 
     it('rejects a template file whose first child is not a <template> element', async () => {

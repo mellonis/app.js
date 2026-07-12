@@ -11,6 +11,7 @@ export default class App {
     readonly data: Record<string, unknown>;
     readonly element: HTMLElement;
     readonly methods: Readonly<Record<string, AppMethod>>;
+    readonly ready: Promise<void>;
     static readonly templateNameToTemplatePromiseMap: Map<string, Promise<string>>;
     constructor({ element, componentName, data, methods }?: AppOptions);
     static loadTemplate(templateName: string): Promise<string>;

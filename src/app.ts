@@ -28,6 +28,7 @@ export default class App {
     declare readonly data: Record<string, unknown>;
     declare readonly element: HTMLElement;
     declare readonly methods: Readonly<Record<string, AppMethod>>;
+    declare readonly ready: Promise<void>;
 
     readonly #showIfElementToDataMap = new Map<HTMLElement, ShowIfEntry>();
     readonly #valueElementToDataMap = new Map<HTMLElement, ValueEntry>();
@@ -60,8 +61,13 @@ export default class App {
             },
         });
         element.dataset['component'] = this.componentName;
-        this.#loadComponent()
-            .catch(console.error);
+        Object.defineProperty(this, 'ready', {
+            enumerable: true,
+            value: this.#loadComponent(),
+        });
+        // Default handler: keeps mount failures visible for users who never
+        // touch `ready`, and prevents unhandled-rejection noise
+        this.ready.catch(console.error);
     }
 
     #createGhost(data: Record<string, unknown>): Record<string, unknown> {
@@ -156,11 +162,6 @@ export default class App {
                 while (documentFragment.children.length) {
                     componentWrapper.appendChild(documentFragment.children[0]);
                 }
-            })
-            .catch(error => {
-                console.error(error);
-
-                return Promise.reject('Can\'t get a component');
             });
     }
 
@@ -227,12 +228,7 @@ export default class App {
                 this.#updateVisibility();
                 this.#updateValues();
             })
-            .then(() => documentFragment)
-            .catch(error => {
-                console.error(error);
-
-                return Promise.reject('Sub component error');
-            });
+            .then(() => documentFragment);
     }
 
     #showElement(element: HTMLElement): void {
@@ -296,9 +292,8 @@ export default class App {
                 .then(response => response.text())
                 .catch(error => {
                     App.templateNameToTemplatePromiseMap.delete(templateName);
-                    console.log(error);
 
-                    return Promise.reject();
+                    return Promise.reject(error);
                 });
 
             App.templateNameToTemplatePromiseMap.set(templateName, loadTemplatePromise);
