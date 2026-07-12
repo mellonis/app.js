@@ -8,6 +8,8 @@ A tiny reactive framework
 - App needs to be constructed with parameters: element, data, methods and componentName, which is optional
 - An App instance exposes `ready` — a promise that resolves when the initial mount finishes (and rejects with the original error if it fails)
 - A template that fails to load (network error or HTTP error status) is not cached — the next load retries the fetch
+- Lists render with `data-for` (a bare array expression) plus a required `data-key`; item expressions see `$item`, `$index`, `$array`
+- Arrays update by replacement: `todos = [...todos, item]` — prefer copy-based expressions like `todos.filter(...)` / `[...todos].sort(...)`
 
 # Quick start
 
@@ -17,6 +19,7 @@ cd app.js
 npm install        # installs dev deps and builds the framework
 npm run ex:counter # counter example → http://localhost:8123/
 npm run ex:form    # form-submit example → http://localhost:8123/
+npm run ex:todo    # todo example → http://localhost:8123/
 ```
 
 Each example is served as its own web root: `/app.js` is the freshly built framework, `/templates/` belongs to that example alone.
