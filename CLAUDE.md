@@ -15,7 +15,7 @@ npm run typecheck   # all workspaces
 npm test            # framework unit suite + examples smoke suite
 npm run ex:counter  # serve the counter example on :8123
 npm run ex:form     # serve the form example on :8123
-npx vitest run packages/app.js/tests/components.test.ts   # single file (run from repo root)
+npm test -w app.js -- tests/components.test.ts   # single test file
 ```
 
 Framework tests import `../src/app` directly; examples smoke tests drive the built `dist/` over real HTTP via `serve.mjs` + happy-dom's `Browser` (with `enableJavaScriptEvaluation: true`). Convention for newly found bugs: encode each as an `it.fails` case asserting the *desired* behavior (with its issue number in the test name) — once the bug is fixed, that test starts failing; remove the `.fails` modifier as part of the fix. No such markers are currently open.
