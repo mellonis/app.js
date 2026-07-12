@@ -91,6 +91,37 @@ describe('data-for: mount and setup errors', () => {
 
         expect(input.value).toBe('typed');
     });
+
+    it('a nested data-for does not register a zombie block (item-scope variant)', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const template = '<template><ul><li data-for="items" data-key="$item.id"><p data-for="$item.subs" data-key="$item.id"></p></li></ul></template>';
+        const {app, host} = await mountList([{id: 1, subs: []}], template);
+
+        expect(host.querySelectorAll('li')).toHaveLength(0);
+
+        const errorsAfterMount = errorSpy.mock.calls.length;
+
+        expect(errorsAfterMount).toBeGreaterThan(0);
+
+        app.data.other = 1;
+        app.data.other = 2;
+
+        expect(errorSpy.mock.calls.length).toBe(errorsAfterMount);
+    });
+
+    it('a nested data-for referencing a valid data key does not reconcile invisibly', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const template = '<template><ul><li data-for="items" data-key="$item.id"><p data-for="items" data-key="$item.id"></p></li></ul></template>';
+        const {app, host} = await mountList([{id: 1}], template);
+
+        expect(host.querySelectorAll('li, p')).toHaveLength(0);
+
+        const errorsAfterMount = errorSpy.mock.calls.length;
+
+        app.data.other = 1;
+
+        expect(errorSpy.mock.calls.length).toBe(errorsAfterMount);
+    });
 });
 
 describe('data-for: reconciliation', () => {

@@ -179,11 +179,6 @@ export default class App {
     }
 
     #extractForBlock(element: HTMLElement): void {
-        if (!element.parentNode) {
-            // An ancestor data-for was already extracted or errored away
-            return;
-        }
-
         if (element.dataset['showIf'] !== undefined || element.dataset['component'] !== undefined) {
             console.error('data-for cannot be combined with data-show-if or data-component on the same element', element);
             element.remove();
@@ -435,6 +430,11 @@ export default class App {
         const documentFragment = templateElement.content;
 
         documentFragment.querySelectorAll<HTMLElement>('[data-for]').forEach(element => {
+            if (!documentFragment.contains(element)) {
+                // An ancestor data-for errored and was removed with its subtree
+                return;
+            }
+
             this.#extractForBlock(element);
         });
 
