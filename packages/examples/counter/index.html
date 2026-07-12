@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Counter — app.js example</title>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+    import App from '/app.js';
+
+    new App({
+        element: document.querySelector('#app'),
+        data: {count: 0},
+        methods: {
+            increment() {
+                this.data.count = Number(this.data.count) + 1;
+            },
+            decrement() {
+                this.data.count = Number(this.data.count) - 1;
+            },
+        },
+    });
+</script>
+</body>
+</html>

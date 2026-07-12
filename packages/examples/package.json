@@ -1,0 +1,13 @@
+{
+  "name": "examples",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "counter": "node serve.mjs counter",
+    "form": "node serve.mjs form",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "license": "MIT"
+}
