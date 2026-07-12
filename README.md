@@ -7,6 +7,7 @@ A tiny reactive framework
 - Meaningful attributes in templates are: data-component, data-show-if, data-value, data-on-*
 - App needs to be constructed with parameters: element, data, methods and componentName, which is optional
 - An App instance exposes `ready` — a promise that resolves when the initial mount finishes (and rejects with the original error if it fails)
+- A template that fails to load (network error or HTTP error status) is not cached — the next load retries the fetch
 
 # Development
 

@@ -30,4 +30,20 @@ describe('App.loadTemplate', () => {
         await expect(App.loadTemplate('late')).resolves.toBe('<template></template>');
         expect(fetchMock).toHaveBeenCalledTimes(1);
     });
+
+    it('evicts an HTTP error response so it can be retried (issue #9)', async () => {
+        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({
+            ok: false,
+            status: 404,
+            text: () => Promise.resolve('<h1>Not Found</h1>'),
+        })));
+
+        await expect(App.loadTemplate('late')).rejects.toEqual(new Error('HTTP 404 for late'));
+        expect(App.templateNameToTemplatePromiseMap.has('late')).toBe(false);
+
+        const fetchMock = stubTemplates({late: '<template></template>'});
+
+        await expect(App.loadTemplate('late')).resolves.toBe('<template></template>');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
 });

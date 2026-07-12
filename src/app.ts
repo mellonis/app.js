@@ -289,7 +289,13 @@ export default class App {
             loadTemplatePromise = App.templateNameToTemplatePromiseMap.get(templateName)!;
         } else {
             loadTemplatePromise = fetch(`/templates/${templateName}.html`)
-                .then(response => response.text())
+                .then(response => {
+                    if (!response.ok) {
+                        return Promise.reject(new Error(`HTTP ${response.status} for ${templateName}`));
+                    }
+
+                    return response.text();
+                })
                 .catch(error => {
                     App.templateNameToTemplatePromiseMap.delete(templateName);
 

@@ -222,7 +222,12 @@ class App {
         }
         else {
             loadTemplatePromise = fetch(`/templates/${templateName}.html`)
-                .then(response => response.text())
+                .then(response => {
+                if (!response.ok) {
+                    return Promise.reject(new Error(`HTTP ${response.status} for ${templateName}`));
+                }
+                return response.text();
+            })
                 .catch(error => {
                 _a.templateNameToTemplatePromiseMap.delete(templateName);
                 return Promise.reject(error);

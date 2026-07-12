@@ -7,7 +7,7 @@ export function stubTemplates(templates: Record<string, string>) {
         const name = match?.[1];
 
         if (name && name in templates) {
-            return Promise.resolve({text: () => Promise.resolve(templates[name])});
+            return Promise.resolve({ok: true, status: 200, text: () => Promise.resolve(templates[name])});
         }
 
         return Promise.reject(new Error(`404: ${url}`));
