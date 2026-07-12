@@ -92,9 +92,21 @@ describe('ghost reactivity', () => {
         expect(app.data.title).toBe('from input');
     });
 
-    it.fails('does not crash when initial data contains null (issue #3)', () => {
+    it('does not crash when initial data contains null (issue #3)', () => {
         stubTemplates({root: '<template></template>'});
 
         expect(() => new App({element: mountPoint(), data: {user: null}})).not.toThrow();
+    });
+
+    it('treats a null value as a readable, settable primitive (issue #3)', async () => {
+        stubTemplates({root: '<template></template>'});
+        const app = new App({element: mountPoint(), data: {user: null}});
+        await flush();
+
+        expect(app.data.user).toBeNull();
+
+        app.data.user = 'Ada';
+
+        expect(app.data.user).toBe('Ada');
     });
 });

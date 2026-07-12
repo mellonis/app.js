@@ -35,8 +35,7 @@ class App {
         const ghost = {};
         const app = this;
         Object.keys(data).forEach(key => {
-            // typeof null === 'object': a null value recurses and throws — known bug, issue #3
-            if (typeof data[key] === 'object') {
+            if (data[key] !== null && typeof data[key] === 'object') {
                 Object.defineProperty(ghost, key, {
                     enumerable: true,
                     value: this.#createGhost(data[key]),
