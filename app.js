@@ -117,7 +117,7 @@ export default class App {
             return Promise.reject('A component cycle was detected during loading');
         }
 
-        parentComponentNameList.unshift(componentName);
+        parentComponentNameList = [componentName, ...parentComponentNameList];
 
         return App.loadTemplate(componentName)
             .then(template => this.renderTemplate({template, parentComponentNameList}))
