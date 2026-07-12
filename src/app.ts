@@ -124,9 +124,9 @@ export default class App {
         } else if (element) {
             const entry = this.#valueElementToDataMap.get(element)!;
 
-            // Known bug: for a bare top-level key this assigns the eval-local
-            // var, not the ghost — issue #2
-            evaluatingCode += `${entry.expression} = element;`;
+            // Rooted at this.data so the assignment hits the ghost setter;
+            // a bare `expression = element` would assign the eval-local var
+            evaluatingCode += `this.data.${entry.expression} = element;`;
         }
 
         return eval(evaluatingCode);

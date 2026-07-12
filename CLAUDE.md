@@ -16,7 +16,7 @@ npm test          # vitest run (happy-dom environment)
 npx vitest run tests/components.test.ts   # single file
 ```
 
-Tests import `../src/app` directly. The known open bug (#2) is encoded as an `it.fails` case asserting the *desired* behavior — once the bug is fixed, that test starts failing; remove the `.fails` modifier as part of the fix.
+Tests import `../src/app` directly. Convention for newly found bugs: encode each as an `it.fails` case asserting the *desired* behavior (with its issue number in the test name) — once the bug is fixed, that test starts failing; remove the `.fails` modifier as part of the fix. No such markers are currently open.
 
 To exercise the framework manually, serve the directory over HTTP (templates load via `fetch`, so `file://` won't work) with a host page and a `/templates` directory — see README.
 
@@ -33,6 +33,6 @@ Everything is the `App` class in `src/app.ts`. One instance = one component tree
 - `data-value="expr"` — binds into `value` for `<input>` (two-way, via the `input` event) and `textContent` for everything else (one-way).
 - `data-on-click` / `data-on-submit` — attribute value is a key in `methods`. Only these two events are supported; to add one, extend `eventNameList` in `renderTemplate`.
 
-**Expression evaluation — `evaluate()`.** Directive expressions are arbitrary JavaScript, executed with `eval` after declaring every top-level `data` key as a local `var`. Consequently only top-level keys are directly referenceable (nested values via `parent.child`), and an input's write-back works by `eval`-ing `<expression> = element`, which lands in the ghost setter described above.
+**Expression evaluation — `evaluate()`.** Directive expressions are arbitrary JavaScript, executed with `eval` after declaring every top-level `data` key as a local `var`. Consequently only top-level keys are directly referenceable (nested values via `parent.child`), and an input's write-back works by `eval`-ing `this.data.<expression> = element` — rooted at the ghost object so its setter fires (a bare `<expression> = element` would assign the eval-local `var` instead).
 
 **Methods.** Bound to the app instance at construction, so `this` inside a method is the `App` (giving access to `this.data`); they receive the DOM event as their only argument.

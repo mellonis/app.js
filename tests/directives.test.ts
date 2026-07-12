@@ -61,21 +61,20 @@ describe('data-value', () => {
         expect((app.data.user as Record<string, unknown>).name).toBe('after');
     });
 
-    it.fails('binds an input two-way for a top-level key (issue #2)', async () => {
-        stubTemplates({root: '<template><input data-value="name"></template>'});
+    it('binds an input two-way for a top-level key (issue #2)', async () => {
+        stubTemplates({root: '<template><input data-value="name"><span data-value="name"></span></template>'});
         const host = mountPoint();
         const app = new App({element: host, data: {name: 'before'}});
+        await app.ready;
 
-        const input = await vi.waitFor(() => {
-            const el = host.querySelector('input');
-            expect(el).not.toBeNull();
-            return el!;
-        });
+        const input = host.querySelector('input')!;
+        expect(input.value).toBe('before');
 
         input.value = 'after';
         input.dispatchEvent(new Event('input'));
 
         expect(app.data.name).toBe('after');
+        expect(host.querySelector('span')?.textContent).toBe('after');
     });
 });
 
