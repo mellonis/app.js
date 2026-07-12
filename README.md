@@ -4,7 +4,7 @@ A tiny reactive framework
 # Overview
 
 - Templates should be placed in /templates directory
-- Meaningful attributes in templates are: data-component, data-show-if, data-value, data-on-*
+- Meaningful attributes in templates are: data-component, data-show-if, data-value, data-on-*, data-for + data-key
 - App needs to be constructed with parameters: element, data, methods and componentName, which is optional
 - An App instance exposes `ready` — a promise that resolves when the initial mount finishes (and rejects with the original error if it fails)
 - A template that fails to load (network error or HTTP error status) is not cached — the next load retries the fetch
