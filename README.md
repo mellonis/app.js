@@ -9,6 +9,7 @@ A tiny reactive framework
 - An App instance exposes `ready` — a promise that resolves when the initial mount finishes (and rejects with the original error if it fails)
 - `app.destroy()` stops the app: listeners are removed (one `AbortController` for everything), updates stop, the rendered DOM stays as-is
 - A template that fails to load (network error or HTTP error status) is not cached — the next load retries the fetch
+- Template text supports `${expression}` interpolation (escape a literal with `\${`)
 - Lists render with `data-for` (a bare array expression) plus a required `data-key`; item expressions see `$item`, `$index`, `$array`
 - Arrays update by replacement: `todos = [...todos, item]` — prefer copy-based expressions like `todos.filter(...)` / `[...todos].sort(...)`
 

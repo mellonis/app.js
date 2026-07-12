@@ -30,11 +30,21 @@ interface ForBlockScopeRef {
     key: string;
 }
 
+interface TextNodeEntry {
+    expression: string;
+    scopeRef?: ForBlockScopeRef;
+}
+
+interface TextPart {
+    isExpression: boolean;
+    value: string;
+}
+
 interface ForBlockEntry {
     element: HTMLElement;
     item: unknown;
     index: number;
-    boundElements: HTMLElement[];
+    boundElements: (HTMLElement | Text)[];
 }
 
 interface ForBlock {
@@ -56,6 +66,74 @@ interface LoadComponentOptions {
 
 const APP_DESTROYED_MESSAGE = 'The app was destroyed';
 
+// Brace-counting scanner (not a regex): splits template text into static
+// parts and ${expression} parts; `\${` escapes a literal `${`. Throws on an
+// unmatched `${` so wiring can reject the node loudly.
+function splitInterpolations(text: string): TextPart[] {
+    const parts: TextPart[] = [];
+    let staticBuffer = '';
+    let position = 0;
+
+    while (position < text.length) {
+        if (text[position] === '\\' && text.startsWith('${', position + 1)) {
+            staticBuffer += '${';
+            position += 3;
+
+            continue;
+        }
+
+        if (text.startsWith('${', position)) {
+            let depth = 1;
+            let end = position + 2;
+
+            while (end < text.length && depth > 0) {
+                if (text[end] === '{') {
+                    depth += 1;
+                } else if (text[end] === '}') {
+                    depth -= 1;
+                }
+
+                end += 1;
+            }
+
+            if (depth > 0) {
+                throw new Error('Unmatched ${ in template text');
+            }
+
+            if (staticBuffer) {
+                parts.push({isExpression: false, value: staticBuffer});
+                staticBuffer = '';
+            }
+
+            parts.push({isExpression: true, value: text.slice(position + 2, end - 1)});
+            position = end;
+
+            continue;
+        }
+
+        staticBuffer += text[position];
+        position += 1;
+    }
+
+    if (staticBuffer) {
+        parts.push({isExpression: false, value: staticBuffer});
+    }
+
+    return parts;
+}
+
+function collectTextNodes(node: Node, into: Text[] = []): Text[] {
+    node.childNodes.forEach(child => {
+        if (child.nodeType === Node.TEXT_NODE) {
+            into.push(child as Text);
+        } else {
+            collectTextNodes(child, into);
+        }
+    });
+
+    return into;
+}
+
 const eventNameList = ['click', 'submit'];
 const elementsWithDataOnAttributeSelector = eventNameList.map(eventName => `[data-on-${eventName}]`).join(',');
 const dataOnAttributeNameRegExp = new RegExp(`^data-on-(${eventNameList.join('|')})$`);
@@ -70,6 +148,7 @@ export default class App {
     readonly #showIfElementToDataMap = new Map<HTMLElement, ShowIfEntry>();
     readonly #displayIfElementToDataMap = new Map<HTMLElement, DisplayIfEntry>();
     readonly #valueElementToDataMap = new Map<HTMLElement, ValueEntry>();
+    readonly #textNodeToDataMap = new Map<Text, TextNodeEntry>();
     readonly #forBlocks = new Set<ForBlock>();
 
     #evaluationScope: Record<string, unknown> | undefined;
@@ -130,7 +209,58 @@ export default class App {
         this.#showIfElementToDataMap.clear();
         this.#displayIfElementToDataMap.clear();
         this.#valueElementToDataMap.clear();
+        this.#textNodeToDataMap.clear();
         this.#forBlocks.clear();
+    }
+
+    #wireTextInterpolations(root: Node, scopeRef?: ForBlockScopeRef): Text[] {
+        const boundTextNodes: Text[] = [];
+
+        collectTextNodes(root).forEach(textNode => {
+            const text = textNode.textContent ?? '';
+
+            if (!text.includes('${')) {
+                return;
+            }
+
+            if (textNode.parentElement?.closest('[data-value]')) {
+                console.error('Interpolation inside a data-value element is not supported (data-value overwrites its content)', textNode.parentElement);
+
+                return;
+            }
+
+            let parts: TextPart[];
+
+            try {
+                parts = splitInterpolations(text);
+            } catch (error) {
+                console.error('Unmatched ${ in template text', textNode, error);
+
+                return;
+            }
+
+            if (!parts.some(part => part.isExpression)) {
+                // Escapes only: rewrite the literal text once, no binding
+                textNode.textContent = parts.map(part => part.value).join('');
+
+                return;
+            }
+
+            const replacements = parts.map(part => {
+                const node = document.createTextNode(part.isExpression ? '' : part.value);
+
+                if (part.isExpression) {
+                    this.#textNodeToDataMap.set(node, {expression: part.value, scopeRef});
+                    boundTextNodes.push(node);
+                }
+
+                return node;
+            });
+
+            textNode.replaceWith(...replacements);
+        });
+
+        return boundTextNodes;
     }
 
     #createGhost(data: Record<string, unknown>): Record<string, unknown> {
@@ -261,9 +391,13 @@ export default class App {
         });
     }
 
-    #wireItemElement(root: HTMLElement, block: ForBlock, key: string): HTMLElement[] {
-        const boundElements: HTMLElement[] = [];
+    #wireItemElement(root: HTMLElement, block: ForBlock, key: string): (HTMLElement | Text)[] {
+        const boundElements: (HTMLElement | Text)[] = [];
         const scopeRef: ForBlockScopeRef = {block, key};
+
+        this.#wireTextInterpolations(root, scopeRef).forEach(textNode => {
+            boundElements.push(textNode);
+        });
 
         [root, ...root.querySelectorAll<HTMLElement>('[data-value]')].forEach(element => {
             if (element.dataset['value'] === undefined) {
@@ -428,6 +562,12 @@ export default class App {
         block.entries.forEach((entry, key) => {
             if (!seenKeys.has(key)) {
                 entry.boundElements.forEach(boundElement => {
+                    if (boundElement instanceof Text) {
+                        this.#textNodeToDataMap.delete(boundElement);
+
+                        return;
+                    }
+
                     this.#valueElementToDataMap.delete(boundElement);
                     this.#showIfElementToDataMap.delete(boundElement);
                     this.#displayIfElementToDataMap.delete(boundElement);
@@ -507,6 +647,9 @@ export default class App {
 
             this.#extractForBlock(element);
         });
+
+        // After extraction, so block subtrees are wired per clone instead
+        this.#wireTextInterpolations(documentFragment);
 
         documentFragment.querySelectorAll<HTMLElement>('[data-show-if]').forEach(element => {
             this.#showIfElementToDataMap.set(element, {
@@ -601,6 +744,20 @@ export default class App {
                     valueElement.textContent = newValue as string;
                 }
             }
+        });
+
+        this.#textNodeToDataMap.forEach((entry, textNode) => {
+            let newValue: unknown;
+
+            try {
+                newValue = this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)});
+            } catch (error) {
+                console.error(`Can't evaluate the "${entry.expression}" expression`, textNode, error);
+
+                return;
+            }
+
+            textNode.textContent = newValue === null || newValue === undefined ? '' : String(newValue);
         });
     }
 
