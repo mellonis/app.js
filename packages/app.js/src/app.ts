@@ -191,6 +191,7 @@ export default class Component {
     declare readonly ready: Promise<void>;
     declare readonly events: ComponentEvents;
     declare readonly props: Readonly<Record<string, unknown>>;
+    declare readonly refs: Record<string, HTMLElement>;
 
     #propsBacking: Record<string, unknown> = {};
     readonly #propBindings = new Map<Component, PropBindingRecord>();
@@ -200,6 +201,9 @@ export default class Component {
     readonly #valueElementToDataMap = new Map<HTMLElement, ValueEntry>();
     readonly #textNodeToDataMap = new Map<Text, TextNodeEntry>();
     readonly #forBlocks = new Set<ForBlock>();
+
+    #cleanup: (() => void) | undefined;
+    readonly #refsBacking: Record<string, HTMLElement> = {};
 
     #evaluationScope: Record<string, unknown> | undefined;
     #evaluationElement: HTMLElement | undefined;
@@ -306,6 +310,8 @@ export default class Component {
         Object.preventExtensions(propsView);
         Object.defineProperty(this, 'props', {enumerable: true, value: propsView});
 
+        Object.defineProperty(this, 'refs', {enumerable: true, value: this.#refsBacking});
+
         element.dataset['component'] = this.componentName;
         Object.defineProperty(this, 'ready', {
             enumerable: true,
@@ -332,7 +338,17 @@ export default class Component {
         this.#destroyed = true;
         this.#childComponents.forEach(child => child.destroy());
         this.#childComponents.clear();
-        // (Task 6 inserts cleanup here, before the abort)
+
+        if (this.#cleanup) {
+            try {
+                this.#cleanup();
+            } catch (error) {
+                console.error(`The "${this.componentName}" component's cleanup threw`, error);
+            }
+
+            this.#cleanup = undefined;
+        }
+
         this.#abortController.abort();
         this.#showIfElementToDataMap.clear();
         this.#displayIfElementToDataMap.clear();
@@ -340,6 +356,7 @@ export default class Component {
         this.#textNodeToDataMap.clear();
         this.#forBlocks.clear();
         this.#propBindings.clear();
+        Object.keys(this.#refsBacking).forEach(key => delete this.#refsBacking[key]);
     }
 
     #runMounted(): void {
@@ -347,7 +364,15 @@ export default class Component {
             return;
         }
 
-        this.#definition.mounted.call(this);
+        try {
+            const result = this.#definition.mounted.call(this);
+
+            if (typeof result === 'function') {
+                this.#cleanup = result;
+            }
+        } catch (error) {
+            console.error(`The "${this.componentName}" component's mounted() hook threw`, error);
+        }
     }
 
     #wireTextInterpolations(root: Node, scopeRef?: ForBlockScopeRef): Text[] {
@@ -568,6 +593,12 @@ export default class Component {
             }
 
             console.error('A form-control data-value (input/textarea/select) inside a data-for block is not supported', element);
+        });
+
+        [root, ...root.querySelectorAll<HTMLElement>('[data-ref]')].forEach(element => {
+            if (element.dataset['ref'] !== undefined) {
+                console.error('data-ref inside a data-for block is not supported in v1', element);
+            }
         });
 
         root.querySelectorAll<HTMLElement>('[data-show-if]').forEach(element => {
@@ -892,6 +923,18 @@ export default class Component {
                 expression: element.dataset['displayIf']!,
                 originalDisplay: element.style.display,
             });
+        });
+
+        documentFragment.querySelectorAll<HTMLElement>('[data-ref]').forEach(element => {
+            const name = element.dataset['ref']!;
+
+            if (name in this.#refsBacking) {
+                console.error(`Duplicate data-ref "${name}" — first wins`, element);
+
+                return;
+            }
+
+            this.#refsBacking[name] = element;
         });
 
         documentFragment.querySelectorAll<HTMLElement>('[data-value]').forEach(element => {
