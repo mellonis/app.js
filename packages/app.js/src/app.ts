@@ -75,6 +75,22 @@ const RESERVED_EVENT_NAME = 'props';
 
 const COMPONENT_DESTROYED_MESSAGE = 'The component was destroyed';
 
+interface ComponentDefinition {
+    data?: () => Record<string, unknown>;
+    methods?: Record<string, ComponentMethod>;
+    mounted?: (this: Component) => void | (() => void);
+}
+
+interface InternalConstruction {
+    definition: ComponentDefinition;
+    parentEventTarget: EventTarget;
+    ancestorChain: string[];
+    propSeeds: Record<string, unknown>;
+    propNames: string[];
+}
+
+const DEFINITION_KEYS = new Set(['data', 'methods', 'mounted']);
+
 // Brace-counting scanner (not a regex): splits template text into static
 // parts and ${expression} parts; `\${` escapes a literal `${`. Throws on an
 // unmatched `${` so wiring can reject the node loudly.
@@ -172,9 +188,37 @@ export default class Component {
     readonly #eventTarget = new EventTarget();
     #parentEventTarget: EventTarget | undefined;
 
+    static readonly #definitionPromiseMap = new Map<string, Promise<ComponentDefinition | null>>();
+    static #constructionContext: InternalConstruction | undefined;
+
+    readonly #childComponents = new Set<Component>();
+    #definition: ComponentDefinition | undefined;
+    #initialAncestorChain: string[] = [];
+
     static readonly #templateNameToTemplatePromiseMap = new Map<string, Promise<string>>();
 
     constructor({element = document.body, componentName = 'root', data = {}, methods = {}}: ComponentOptions = {}) {
+        const internal = Component.#constructionContext;
+
+        Component.#constructionContext = undefined;
+
+        if (internal) {
+            const factory = internal.definition.data;
+
+            data = factory ? factory() : {};
+            methods = internal.definition.methods ?? {};
+
+            internal.propNames.forEach(name => {
+                if (name in data) {
+                    throw new Error(`The "${name}" prop collides with a data key of this component`);
+                }
+            });
+
+            this.#definition = internal.definition;
+            this.#parentEventTarget = internal.parentEventTarget;
+            this.#initialAncestorChain = internal.ancestorChain;
+        }
+
         const boundMethods: Record<string, ComponentMethod> = Object.assign({}, methods);
         Object.keys(boundMethods).forEach(key => {
             boundMethods[key] = boundMethods[key].bind(this);
@@ -230,7 +274,10 @@ export default class Component {
         element.dataset['component'] = this.componentName;
         Object.defineProperty(this, 'ready', {
             enumerable: true,
-            value: this.#loadComponent(),
+            value: this.#loadComponent({parentComponentNameList: this.#initialAncestorChain})
+                .then(() => {
+                    this.#runMounted();
+                }),
         });
         // Default handler: keeps mount failures visible for users who never
         // touch `ready`, and prevents unhandled-rejection noise; deliberate
@@ -248,12 +295,23 @@ export default class Component {
         }
 
         this.#destroyed = true;
+        this.#childComponents.forEach(child => child.destroy());
+        this.#childComponents.clear();
+        // (Task 6 inserts cleanup here, before the abort)
         this.#abortController.abort();
         this.#showIfElementToDataMap.clear();
         this.#displayIfElementToDataMap.clear();
         this.#valueElementToDataMap.clear();
         this.#textNodeToDataMap.clear();
         this.#forBlocks.clear();
+    }
+
+    #runMounted(): void {
+        if (this.#destroyed || !this.#definition?.mounted) {
+            return;
+        }
+
+        this.#definition.mounted.call(this);
     }
 
     #wireTextInterpolations(root: Node, scopeRef?: ForBlockScopeRef): Text[] {
@@ -648,6 +706,69 @@ export default class Component {
         }
     }
 
+    static #instantiate({element, componentName, definition, parent, ancestorChain, propSeeds, propNames, entryRef}: {
+        element: HTMLElement;
+        componentName: string;
+        definition: ComponentDefinition;
+        parent: Component;
+        ancestorChain: string[];
+        propSeeds: Record<string, unknown>;
+        propNames: string[];
+        entryRef?: ForBlockScopeRef;
+    }): Component {
+        Component.#constructionContext = {definition, parentEventTarget: parent.#eventTarget, ancestorChain, propSeeds, propNames};
+
+        try {
+            const child = new Component({element, componentName});
+
+            parent.#childComponents.add(child);
+            parent.#wireComponentEvents(element, child, entryRef);
+
+            return child;
+        } finally {
+            Component.#constructionContext = undefined;
+        }
+    }
+
+    #wireComponentEvents(element: HTMLElement, child: Component, entryRef?: ForBlockScopeRef): void {
+        Array.from(element.attributes).forEach(attribute => {
+            const match = /^data-component-on-(.+)$/.exec(attribute.name);
+
+            if (!match) {
+                return;
+            }
+
+            const eventName = match[1];
+            const methodName = attribute.value;
+
+            if (eventName === RESERVED_EVENT_NAME) {
+                console.error('data-component-on-props is not supported — the parent caused those re-seeds', element);
+
+                return;
+            }
+
+            // Chained to BOTH lifetimes; the child's own signal fires inside
+            // destroy() AFTER the cleanup phase — final-emit guarantee
+            const wiring = new AbortController();
+            const chain = (signal: AbortSignal) => {
+                if (signal.aborted) {
+                    wiring.abort();
+                } else {
+                    signal.addEventListener('abort', () => wiring.abort(), {once: true});
+                }
+            };
+
+            chain(this.#abortController.signal);
+            chain(child.#abortController.signal);
+
+            child.#eventTarget.addEventListener(eventName, event => {
+                const entry = entryRef ? entryRef.block.entries.get(entryRef.key) : undefined;
+
+                this.#handleEvent({methodName, event, item: entry?.item, index: entry?.index});
+            }, {signal: wiring.signal});
+        });
+    }
+
     #loadComponent({componentWrapper = this.element, componentName = this.componentName, parentComponentNameList = []}: LoadComponentOptions = {}): Promise<void> {
         if (parentComponentNameList.indexOf(componentName) >= 0) {
             return Promise.reject('A component cycle was detected during loading');
@@ -657,7 +778,7 @@ export default class Component {
 
         return Component.loadTemplate(componentName)
             .then(template => this.#renderTemplate({template, parentComponentNameList}))
-            .then(documentFragment => {
+            .then(({documentFragment, childFailure}) => {
                 if (this.#destroyed) {
                     throw new Error(COMPONENT_DESTROYED_MESSAGE);
                 }
@@ -667,10 +788,19 @@ export default class Component {
                 while (documentFragment.childNodes.length) {
                     componentWrapper.appendChild(documentFragment.childNodes[0]);
                 }
+
+                if (childFailure) {
+                    // Mount what succeeded first, then surface the first child
+                    // failure through ready — a broken child is loud, but its
+                    // siblings still render (same resilience as issue #4)
+                    return Promise.reject(childFailure.reason);
+                }
+
+                return undefined;
             });
     }
 
-    #renderTemplate({template, parentComponentNameList}: {template: string; parentComponentNameList: string[]}): Promise<DocumentFragment> {
+    #renderTemplate({template, parentComponentNameList}: {template: string; parentComponentNameList: string[]}): Promise<{documentFragment: DocumentFragment; childFailure: PromiseRejectedResult | undefined}> {
         const divElement = document.createElement('div');
 
         divElement.innerHTML = template;
@@ -746,18 +876,59 @@ export default class Component {
         });
 
         const subComponentPromiseList = Array.from(documentFragment.querySelectorAll<HTMLElement>('[data-component]')).map(element => {
-            return this.#loadComponent({
-                componentWrapper: element,
-                componentName: element.dataset['component'],
-                parentComponentNameList,
-            });
+            if (formControlTagNames.has(element.tagName)) {
+                console.error('data-component cannot be placed on a form control', element);
+
+                return Promise.resolve();
+            }
+
+            return this.#mountChildOrInclude(element, parentComponentNameList);
         });
 
-        return Promise.all(subComponentPromiseList)
-            .then(() => {
+        // allSettled, not all: a broken child must not abort the mount of its
+        // siblings — the first failure is carried out so #loadComponent can
+        // append the fragment before rejecting ready with it
+        return Promise.allSettled(subComponentPromiseList)
+            .then(results => {
                 this.#runUpdatePass();
-            })
-            .then(() => documentFragment);
+
+                return {
+                    documentFragment,
+                    childFailure: results.find((result): result is PromiseRejectedResult => result.status === 'rejected'),
+                };
+            });
+    }
+
+    #mountChildOrInclude(element: HTMLElement, parentComponentNameList: string[]): Promise<void> {
+        const componentName = element.dataset['component']!;
+
+        return Component.#loadDefinition(componentName).then(definition => {
+            if (this.#destroyed) {
+                throw new Error(COMPONENT_DESTROYED_MESSAGE);
+            }
+
+            if (definition === null) {
+                Array.from(element.attributes).forEach(attribute => {
+                    if (/^data-component-(on|prop)-/.test(attribute.name)) {
+                        console.error(`"${attribute.name}" has no effect on a template-only include`, element);
+                    }
+                });
+
+                return this.#loadComponent({componentWrapper: element, componentName, parentComponentNameList});
+            }
+
+            const child = Component.#instantiate({
+                element,
+                componentName,
+                definition,
+                parent: this,
+                ancestorChain: parentComponentNameList,
+                propSeeds: {},
+                propNames: [],
+            });
+
+            return child.ready;
+        });
     }
 
     #showElement(element: HTMLElement): void {
@@ -847,6 +1018,7 @@ export default class Component {
 
     static clearTemplateCache(): void {
         Component.#templateNameToTemplatePromiseMap.clear();
+        Component.#definitionPromiseMap.clear();
     }
 
     static loadTemplate(templateName: string): Promise<string> {
@@ -873,5 +1045,89 @@ export default class Component {
         }
 
         return loadTemplatePromise;
+    }
+
+    static #loadDefinition(componentName: string): Promise<ComponentDefinition | null> {
+        let promise = Component.#definitionPromiseMap.get(componentName);
+
+        if (!promise) {
+            promise = Component.loadTemplate(componentName)
+                .then(text => Component.#parseDefinition(componentName, text))
+                .catch(error => {
+                    Component.#definitionPromiseMap.delete(componentName);
+
+                    return Promise.reject(error);
+                });
+
+            Component.#definitionPromiseMap.set(componentName, promise);
+        }
+
+        return promise;
+    }
+
+    static async #parseDefinition(componentName: string, templateText: string): Promise<ComponentDefinition | null> {
+        const divElement = document.createElement('div');
+
+        divElement.innerHTML = templateText;
+
+        const templateElement = divElement.firstChild;
+
+        if (!(templateElement instanceof HTMLTemplateElement)) {
+            throw new Error('A component template file must have a <template> element as its first child');
+        }
+
+        const meaningfulSiblings: ChildNode[] = [];
+
+        for (let node = templateElement.nextSibling; node; node = node.nextSibling) {
+            const ignorable = (node.nodeType === Node.TEXT_NODE && !(node.textContent ?? '').trim())
+                || node.nodeType === Node.COMMENT_NODE;
+
+            if (!ignorable) {
+                meaningfulSiblings.push(node);
+            }
+        }
+
+        const scriptElement = meaningfulSiblings.find(node => node instanceof HTMLScriptElement) as HTMLScriptElement | undefined;
+
+        if (!scriptElement) {
+            // Template-only: legacy include, stray content tolerated as today
+            return null;
+        }
+
+        if (meaningfulSiblings.length > 1) {
+            throw new Error(`The "${componentName}" component file must contain only <template> and <script>`);
+        }
+
+        const moduleUrl = 'data:text/javascript;charset=utf-8,' + encodeURIComponent(scriptElement.textContent ?? '');
+        const module = await import(/* @vite-ignore */ moduleUrl);
+        const definition = module.default as ComponentDefinition;
+
+        if (definition === null || typeof definition !== 'object') {
+            throw new Error(`The "${componentName}" component script must export default a definition object`);
+        }
+
+        if (definition.data !== undefined && typeof definition.data !== 'function') {
+            throw new Error(`The "${componentName}" definition's data must be a factory — data: () => ({...}) — so instances never share state`);
+        }
+
+        if (definition.methods !== undefined && (definition.methods === null || typeof definition.methods !== 'object')) {
+            throw new Error(`The "${componentName}" definition's methods must be an object`);
+        }
+
+        if (definition.mounted !== undefined && typeof definition.mounted !== 'function') {
+            throw new Error(`The "${componentName}" definition's mounted must be a function`);
+        }
+
+        Object.keys(definition).forEach(key => {
+            if (!DEFINITION_KEYS.has(key)) {
+                console.warn(`Unknown key "${key}" in the "${componentName}" component definition`);
+            }
+        });
+
+        if (definition.methods) {
+            Object.freeze(definition.methods);
+        }
+
+        return Object.freeze(definition);
     }
 }
