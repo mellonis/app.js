@@ -180,6 +180,46 @@ describe('per-item components', () => {
         expect(host.querySelectorAll('li')).toHaveLength(1);
     });
 
+    it.fails('a cleanup final-emit that ADDS an item mid-sweep renders it (issue #22)', async () => {
+        stubTemplates({
+            root: '<template><ul><li data-for="todos" data-key="$item.id"><div data-component="adder" data-component-prop-todo="$item" data-component-on-gone="onGone"></div></li></ul></template>',
+            adder: `<template><span>\${todo.title}</span></template>
+<script>
+    export default {
+        mounted() {
+            return () => {
+                this.events.emit('gone', this.props.todo.id);
+            };
+        },
+    };
+</script>`,
+        });
+        const host = mountPoint();
+        const app = new Component({
+            element: host,
+            data: {todos: [{id: 1, title: 'a'}, {id: 2, title: 'b'}]},
+            methods: {
+                onGone(event) {
+                    if ((event as CustomEvent).detail === 1) {
+                        this.data.todos = [...(this.data.todos as Array<{id: number; title: string}>), {id: 4, title: 'd'}];
+                    }
+                },
+            },
+        });
+        await app.ready;
+        await vi.waitFor(() => {
+            expect(host.querySelectorAll('span')).toHaveLength(2);
+        });
+
+        // Evict id 1; its cleanup emits, the handler APPENDS id 4 mid-sweep —
+        // desired: the added item renders (today the outer sweep destroys it)
+        app.data.todos = (app.data.todos as Array<{id: number}>).filter(todo => todo.id !== 1);
+
+        await vi.waitFor(() => {
+            expect([...host.querySelectorAll('span')].map(s => s.textContent)).toEqual(['b', 'd']);
+        });
+    });
+
     it('recursion through items is rejected as a cycle (block-captured chain), even on a late pass', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
