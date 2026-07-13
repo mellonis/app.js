@@ -137,6 +137,49 @@ describe('per-item components', () => {
         expect(host.querySelector('em')).toBeNull();
     });
 
+    it('a cleanup final-emit that prunes the list cannot resurrect evicted elements', async () => {
+        stubTemplates({
+            root: '<template><ul><li data-for="todos" data-key="$item.id"><div data-component="pruner" data-component-prop-todo="$item" data-component-on-gone="onGone"></div></li></ul></template>',
+            pruner: `<template><span>\${todo.title}</span></template>
+<script>
+    export default {
+        mounted() {
+            return () => {
+                this.events.emit('gone', this.props.todo.id);
+            };
+        },
+    };
+</script>`,
+        });
+        const host = mountPoint();
+        const app = new Component({
+            element: host,
+            data: {todos: [{id: 1, title: 'a'}, {id: 2, title: 'b'}, {id: 3, title: 'c'}]},
+            methods: {
+                onGone(event) {
+                    const goneId = (event as CustomEvent).detail as number;
+
+                    if (goneId === 1) {
+                        this.data.todos = (this.data.todos as Array<{id: number}>).filter(todo => todo.id !== 2);
+                    }
+                },
+            },
+        });
+        await app.ready;
+        await vi.waitFor(() => {
+            expect(host.querySelectorAll('span')).toHaveLength(3);
+        });
+
+        // Evict id 1; its cleanup emits 'gone', the handler prunes id 2
+        // mid-sweep — the re-entrant pass must win, no zombies
+        app.data.todos = (app.data.todos as Array<{id: number}>).filter(todo => todo.id !== 1);
+
+        await vi.waitFor(() => {
+            expect([...host.querySelectorAll('span')].map(s => s.textContent)).toEqual(['c']);
+        });
+        expect(host.querySelectorAll('li')).toHaveLength(1);
+    });
+
     it('recursion through items is rejected as a cycle (block-captured chain), even on a late pass', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 

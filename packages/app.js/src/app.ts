@@ -45,6 +45,7 @@ interface ForBlockEntry {
     element: HTMLElement;
     item: unknown;
     index: number;
+    key: string;
     boundElements: (HTMLElement | Text)[];
     child?: Component;
 }
@@ -79,7 +80,7 @@ interface PropBindingRecord {
     reportedErrorKinds: Set<string>;
 }
 
-const RESERVED_IDENTIFIERS = new Set(['break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else', 'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import', 'in', 'instanceof', 'new', 'null', 'return', 'super', 'switch', 'this', 'throw', 'true', 'try', 'typeof', 'var', 'void', 'while', 'with', 'yield', 'let', 'static', 'implements', 'interface', 'package', 'private', 'protected', 'public', 'await']);
+const RESERVED_IDENTIFIERS = new Set(['break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else', 'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import', 'in', 'instanceof', 'new', 'null', 'return', 'super', 'switch', 'this', 'throw', 'true', 'try', 'typeof', 'var', 'void', 'while', 'with', 'yield', 'let', 'static', 'implements', 'interface', 'package', 'private', 'protected', 'public', 'await', 'eval', 'arguments']);
 
 function isValidPropName(name: string): boolean {
     return /^[A-Za-z_$][\w$]*$/.test(name) && !RESERVED_IDENTIFIERS.has(name);
@@ -237,7 +238,7 @@ export default class Component {
             methods = internal.definition.methods ?? {};
 
             internal.propNames.forEach(name => {
-                if (name in data) {
+                if (Object.hasOwn(data, name)) {
                     throw new Error(`The "${name}" prop collides with a data key of this component`);
                 }
             });
@@ -793,7 +794,7 @@ export default class Component {
             } else {
                 const element = block.templateElement.cloneNode(true) as HTMLElement;
 
-                entry = {element, item, index, boundElements: []};
+                entry = {element, item, index, key, boundElements: []};
                 block.entries.set(key, entry);
                 entry.boundElements = this.#wireItemElement(element, block, key);
             }
@@ -830,6 +831,12 @@ export default class Component {
         let cursor: ChildNode = block.anchorStart.nextSibling!;
 
         desired.forEach(entry => {
+            if (block.entries.get(entry.key) !== entry) {
+                // Evicted by a re-entrant pass mid-sweep (e.g. a cleanup's
+                // final emit mutated the list) — do not resurrect
+                return;
+            }
+
             if (entry.element === cursor) {
                 cursor = cursor.nextSibling!;
             } else {
@@ -990,7 +997,7 @@ export default class Component {
         documentFragment.querySelectorAll<HTMLElement>('[data-ref]').forEach(element => {
             const name = element.dataset['ref']!;
 
-            if (name in this.#refsBacking) {
+            if (Object.hasOwn(this.#refsBacking, name)) {
                 console.error(`Duplicate data-ref "${name}" — first wins`, element);
 
                 return;
@@ -1014,7 +1021,7 @@ export default class Component {
 
             const rootIdentifier = /^([A-Za-z_$][\w$]*)/.exec(element.dataset['value']!)?.[1];
 
-            if (rootIdentifier && rootIdentifier in this.props) {
+            if (rootIdentifier && Object.hasOwn(this.props, rootIdentifier)) {
                 console.error(`data-value cannot bind the "${rootIdentifier}" prop — props are inputs; copy into data to edit`, element);
 
                 return;
