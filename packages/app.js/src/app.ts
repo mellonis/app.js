@@ -65,6 +65,14 @@ interface LoadComponentOptions {
     parentComponentNameList?: string[];
 }
 
+interface ComponentEvents {
+    emit(name: string, payload?: unknown): void;
+    on(name: string, handler: (event: CustomEvent) => void): void;
+    onParent(name: string, handler: (event: CustomEvent) => void): void;
+}
+
+const RESERVED_EVENT_NAME = 'props';
+
 const COMPONENT_DESTROYED_MESSAGE = 'The component was destroyed';
 
 // Brace-counting scanner (not a regex): splits template text into static
@@ -147,6 +155,7 @@ export default class Component {
     declare readonly element: HTMLElement;
     declare readonly methods: Readonly<Record<string, BoundComponentMethod>>;
     declare readonly ready: Promise<void>;
+    declare readonly events: ComponentEvents;
 
     readonly #showIfElementToDataMap = new Map<HTMLElement, ShowIfEntry>();
     readonly #displayIfElementToDataMap = new Map<HTMLElement, DisplayIfEntry>();
@@ -159,6 +168,9 @@ export default class Component {
 
     readonly #abortController = new AbortController();
     #destroyed = false;
+
+    readonly #eventTarget = new EventTarget();
+    #parentEventTarget: EventTarget | undefined;
 
     static readonly #templateNameToTemplatePromiseMap = new Map<string, Promise<string>>();
 
@@ -187,6 +199,34 @@ export default class Component {
                 value: boundMethods,
             },
         });
+
+        const events: ComponentEvents = {
+            emit: (name, payload) => {
+                if (name === RESERVED_EVENT_NAME) {
+                    console.error(`The "${RESERVED_EVENT_NAME}" event name is reserved for the framework`, this.element);
+
+                    return;
+                }
+
+                this.#eventTarget.dispatchEvent(new CustomEvent(name, {detail: payload}));
+            },
+            on: (name, handler) => {
+                this.#eventTarget.addEventListener(name, handler as EventListener, {signal: this.#abortController.signal});
+            },
+            onParent: (name, handler) => {
+                if (!this.#parentEventTarget) {
+                    console.error('events.onParent: this component has no parent', this.element);
+
+                    return;
+                }
+
+                this.#parentEventTarget.addEventListener(name, handler as EventListener, {signal: this.#abortController.signal});
+            },
+        };
+
+        Object.freeze(events);
+        Object.defineProperty(this, 'events', {enumerable: true, value: events});
+
         element.dataset['component'] = this.componentName;
         Object.defineProperty(this, 'ready', {
             enumerable: true,
