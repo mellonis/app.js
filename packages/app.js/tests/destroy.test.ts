@@ -24,7 +24,7 @@ describe('destroy()', () => {
     });
 
     it('stops reacting to data changes but leaves the DOM in place', async () => {
-        stubTemplates({root: '<template><span data-value="title"></span></template>'});
+        stubTemplates({root: '<template><span>${title}</span></template>'});
         const host = mountPoint();
         const app = new App({element: host, data: {title: 'before'}});
         await app.ready;

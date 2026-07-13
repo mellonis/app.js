@@ -23,7 +23,7 @@ describe('ghost reactivity', () => {
     });
 
     it('updates a bound element when a top-level key is set', async () => {
-        stubTemplates({root: '<template><span data-value="title"></span></template>'});
+        stubTemplates({root: '<template><span>${title}</span></template>'});
         const host = mountPoint();
         const app = new App({element: host, data: {title: 'hello'}});
 
@@ -37,7 +37,7 @@ describe('ghost reactivity', () => {
     });
 
     it('updates a bound element when a nested key is set', async () => {
-        stubTemplates({root: '<template><span data-value="user.name"></span></template>'});
+        stubTemplates({root: '<template><span>${user.name}</span></template>'});
         const host = mountPoint();
         const app = new App({element: host, data: {user: {name: 'Ada'}}});
 
@@ -51,7 +51,7 @@ describe('ghost reactivity', () => {
     });
 
     it('evaluates full JS expressions over top-level keys', async () => {
-        stubTemplates({root: '<template><span data-value="firstName + \' \' + lastName"></span></template>'});
+        stubTemplates({root: '<template><span>${firstName + \' \' + lastName}</span></template>'});
         const host = mountPoint();
         new App({element: host, data: {firstName: 'Ada', lastName: 'Lovelace'}});
 

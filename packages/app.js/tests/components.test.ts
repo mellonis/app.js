@@ -73,7 +73,7 @@ describe('component loading', () => {
     it('renders remaining bindings when one expression throws (issue #4)', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({
-            root: '<template><span data-value="oops()"></span><span id="ok" data-value="title"></span></template>',
+            root: '<template><span>${oops()}</span><span id="ok">${title}</span></template>',
         });
         const host = mountPoint();
         new App({element: host, data: {title: 't'}});
@@ -87,7 +87,7 @@ describe('component loading', () => {
     it('applies remaining bindings when a show-if expression throws (issue #4)', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({
-            root: '<template><div><p data-show-if="oops()">maybe</p></div><span id="ok" data-value="title"></span></template>',
+            root: '<template><div><p data-show-if="oops()">maybe</p></div><span id="ok">${title}</span></template>',
         });
         const host = mountPoint();
         new App({element: host, data: {title: 't'}});

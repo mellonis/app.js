@@ -135,6 +135,8 @@ function collectTextNodes(node: Node, into: Text[] = []): Text[] {
 }
 
 const eventNameList = ['click', 'submit'];
+const formControlTagNames = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
+const DATA_VALUE_FORM_ONLY_MESSAGE = 'data-value only works on form controls (input, textarea, select) — use ${expression} interpolation to display text';
 const elementsWithDataOnAttributeSelector = eventNameList.map(eventName => `[data-on-${eventName}]`).join(',');
 const dataOnAttributeNameRegExp = new RegExp(`^data-on-(${eventNameList.join('|')})$`);
 
@@ -280,7 +282,9 @@ export default class App {
                         return data[key];
                     },
                     set(newValue: unknown) {
-                        const isNewValueFromInputElement = newValue instanceof HTMLInputElement;
+                        const isNewValueFromInputElement = newValue instanceof HTMLInputElement
+                            || newValue instanceof HTMLTextAreaElement
+                            || newValue instanceof HTMLSelectElement;
 
                         if (isNewValueFromInputElement) {
                             data[key] = newValue.value;
@@ -404,14 +408,13 @@ export default class App {
                 return;
             }
 
-            if (element.tagName === 'INPUT') {
-                console.error('An <input data-value> inside a data-for block is not supported', element);
+            if (!formControlTagNames.has(element.tagName)) {
+                console.error(DATA_VALUE_FORM_ONLY_MESSAGE, element);
 
                 return;
             }
 
-            this.#valueElementToDataMap.set(element, {expression: element.dataset['value']!, scopeRef});
-            boundElements.push(element);
+            console.error('A form-control data-value (input/textarea/select) inside a data-for block is not supported', element);
         });
 
         root.querySelectorAll<HTMLElement>('[data-show-if]').forEach(element => {
@@ -667,15 +670,25 @@ export default class App {
         });
 
         documentFragment.querySelectorAll<HTMLElement>('[data-value]').forEach(element => {
+            if (!formControlTagNames.has(element.tagName)) {
+                console.error(DATA_VALUE_FORM_ONLY_MESSAGE, element);
+
+                return;
+            }
+
+            if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) {
+                console.error('data-value does not support checkbox/radio inputs — their state is `checked`, not `value`', element);
+
+                return;
+            }
+
             this.#valueElementToDataMap.set(element, {
                 expression: element.dataset['value']!,
             });
 
-            if (element.tagName === 'INPUT') {
-                element.addEventListener('input', () => {
-                    this.#evaluate({element});
-                }, {signal: this.#abortController.signal});
-            }
+            element.addEventListener(element.tagName === 'SELECT' ? 'change' : 'input', () => {
+                this.#evaluate({element});
+            }, {signal: this.#abortController.signal});
         });
 
         documentFragment.querySelectorAll<HTMLElement>(elementsWithDataOnAttributeSelector).forEach(element => {
@@ -738,11 +751,7 @@ export default class App {
                     return;
                 }
 
-                if (valueElement.tagName === 'INPUT') {
-                    (valueElement as HTMLInputElement).value = newValue as string;
-                } else {
-                    valueElement.textContent = newValue as string;
-                }
+                (valueElement as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value = newValue as string;
             }
         });
 

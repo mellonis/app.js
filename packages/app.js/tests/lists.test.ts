@@ -9,7 +9,7 @@ afterEach(() => {
     document.body.innerHTML = '';
 });
 
-const LIST_TEMPLATE = '<template><ul><li data-for="items" data-key="$item.id"><span data-value="$item.label"></span></li></ul></template>';
+const LIST_TEMPLATE = '<template><ul><li data-for="items" data-key="$item.id"><span>${$item.label}</span></li></ul></template>';
 
 async function mountList(initialItems: unknown[], template = LIST_TEMPLATE) {
     stubTemplates({root: template});
@@ -78,7 +78,7 @@ describe('data-for: mount and setup errors', () => {
 
     it('bans <input data-value> inside items but keeps the rest of the item working', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-        const template = '<template><ul><li data-for="items" data-key="$item.id"><input data-value="$item.label"><span data-value="$item.label"></span></li></ul></template>';
+        const template = '<template><ul><li data-for="items" data-key="$item.id"><input data-value="$item.label"><span>${$item.label}</span></li></ul></template>';
         const {app, host} = await mountList([{id: 1, label: 'a'}], template);
 
         expect(errorSpy.mock.calls.flat().join(' ')).toContain('input');
@@ -221,14 +221,14 @@ describe('data-for: reconciliation', () => {
 
 describe('data-for: item scope and handlers', () => {
     it('exposes $item, $index (source), and $array to item expressions', async () => {
-        const template = '<template><div><p data-for="items" data-key="$item.id"><span data-value="$item.label + \':\' + $index + \'/\' + $array.length"></span></p></div></template>';
+        const template = '<template><div><p data-for="items" data-key="$item.id"><span>${$item.label + \':\' + $index + \'/\' + $array.length}</span></p></div></template>';
         const {host} = await mountList([{id: 1, label: 'a'}, {id: 2, label: 'b'}], template);
 
         expect([...host.querySelectorAll('span')].map(s => s.textContent)).toEqual(['a:0/2', 'b:1/2']);
     });
 
     it('re-evaluates last-item detection after append ($array from the registry)', async () => {
-        const template = '<template><div><p data-for="items" data-key="$item.id"><em data-show-if="$index === $array.length - 1">last</em><span data-value="$item.label"></span></p></div></template>';
+        const template = '<template><div><p data-for="items" data-key="$item.id"><em data-show-if="$index === $array.length - 1">last</em><span>${$item.label}</span></p></div></template>';
         const {app, host} = await mountList([{id: 1, label: 'a'}], template);
 
         expect(host.querySelectorAll('em')).toHaveLength(1);
@@ -255,7 +255,7 @@ describe('data-for: item scope and handlers', () => {
     it('handlers receive (event, item, index), correct even after reorder', async () => {
         const received: Array<{item: {id: number}; index: number | undefined}> = [];
 
-        stubTemplates({root: '<template><div><button data-for="items" data-key="$item.id" data-on-click="pick" data-value="$item.label"></button></div></template>'});
+        stubTemplates({root: '<template><div><button data-for="items" data-key="$item.id" data-on-click="pick">${$item.label}</button></div></template>'});
 
         const host = mountPoint();
         const app = new App({

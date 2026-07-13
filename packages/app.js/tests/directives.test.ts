@@ -76,7 +76,7 @@ describe('data-value', () => {
     });
 
     it('binds an input two-way for a top-level key (issue #2)', async () => {
-        stubTemplates({root: '<template><input data-value="name"><span data-value="name"></span></template>'});
+        stubTemplates({root: '<template><input data-value="name"><span>${name}</span></template>'});
         const host = mountPoint();
         const app = new App({element: host, data: {name: 'before'}});
         await app.ready;
@@ -145,7 +145,7 @@ describe('data-display-if', () => {
     });
 
     it('works inside data-for items with item scope', async () => {
-        stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id"><span data-display-if="$item.on" data-value="$item.label"></span></li></ul></template>'});
+        stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id"><span data-display-if="$item.on">${$item.label}</span></li></ul></template>'});
         const host = mountPoint();
         const app = new App({element: host, data: {items: [{id: 1, on: true, label: 'a'}, {id: 2, on: false, label: 'b'}]}});
         await app.ready;
@@ -162,7 +162,7 @@ describe('data-display-if', () => {
     });
 
     it('works on the data-for element itself (per-item visibility)', async () => {
-        stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id" data-display-if="$item.on" data-value="$item.label"></li></ul></template>'});
+        stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id" data-display-if="$item.on">${$item.label}</li></ul></template>'});
         const host = mountPoint();
         const app = new App({element: host, data: {items: [{id: 1, on: false, label: 'a'}, {id: 2, on: true, label: 'b'}]}});
         await app.ready;
@@ -192,6 +192,79 @@ describe('data-display-if', () => {
 
         expect(detachedSpan.style.display).toBe('');
         expect(errorSpy).not.toHaveBeenCalled();
+    });
+});
+
+describe('data-value: form controls only (issue #18)', () => {
+    it('binds a textarea two-way', async () => {
+        stubTemplates({root: '<template><textarea data-value="note"></textarea></template>'});
+        const host = mountPoint();
+        const app = new App({element: host, data: {note: 'before'}});
+        await app.ready;
+
+        const textarea = host.querySelector('textarea')!;
+
+        expect(textarea.value).toBe('before');
+
+        textarea.value = 'after';
+        textarea.dispatchEvent(new Event('input'));
+
+        expect(app.data.note).toBe('after');
+
+        app.data.note = 'again';
+
+        expect(textarea.value).toBe('again');
+    });
+
+    it('binds a select two-way via the change event', async () => {
+        stubTemplates({root: '<template><select data-value="pick"><option value="a">A</option><option value="b">B</option></select></template>'});
+        const host = mountPoint();
+        const app = new App({element: host, data: {pick: 'b'}});
+        await app.ready;
+
+        const select = host.querySelector('select')!;
+
+        expect(select.value).toBe('b');
+
+        select.value = 'a';
+        select.dispatchEvent(new Event('change'));
+
+        expect(app.data.pick).toBe('a');
+    });
+
+    it('errors on checkbox/radio inputs (their state is checked, not value)', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({root: '<template><input type="checkbox" data-value="agree"></template>'});
+        const host = mountPoint();
+        const app = new App({element: host, data: {agree: false}});
+        await app.ready;
+
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain('checked');
+
+        const box = host.querySelector('input')!;
+
+        box.checked = true;
+        box.dispatchEvent(new Event('input'));
+
+        expect(app.data.agree).toBe(false);
+    });
+
+    it('errors loudly on a non-form element and does not bind', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({root: '<template><span data-value="title">static</span></template>'});
+        const host = mountPoint();
+        const app = new App({element: host, data: {title: 't'}});
+        await app.ready;
+
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain('form controls');
+
+        const span = host.querySelector('span')!;
+
+        expect(span.textContent).toBe('static');
+
+        app.data.title = 't2';
+
+        expect(span.textContent).toBe('static');
     });
 });
 

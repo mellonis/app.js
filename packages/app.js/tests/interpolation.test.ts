@@ -103,15 +103,15 @@ describe('${} interpolation', () => {
         expect(errorSpy).not.toHaveBeenCalled();
     });
 
-    it('errors and yields to data-value when interpolation sits inside a data-value element', async () => {
+    it('a non-form data-value errors loudly; interpolation inside it stays inert (issue #18)', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({root: '<template><span data-value="title">x ${title} y</span></template>'});
         const host = mountPoint();
         new App({element: host, data: {title: 't'}});
         await new Promise(resolve => setTimeout(resolve, 0));
 
-        expect(host.querySelector('span')?.textContent).toBe('t');
-        expect(errorSpy.mock.calls.flat().join(' ')).toContain('data-value');
+        expect(host.querySelector('span')?.textContent).toBe('x ${title} y');
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain('form controls');
     });
 
     it('an unmatched ${ is a loud wiring error and the text is left as written', async () => {
