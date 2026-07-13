@@ -136,4 +136,19 @@ describe('ghost reactivity', () => {
 
         expect(user.tags).toEqual(['a', 'b']);
     });
+
+    it('object self-assignment triggers a pass; replacement throws loudly (issue #7 amendment)', async () => {
+        stubTemplates({root: '<template><span>${user.name}</span></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {user: {name: 'Ada'}}});
+        await app.ready;
+
+        (app.data.user as {name: string}).name = 'Grace';
+        app.data.user = app.data.user;
+
+        expect(host.querySelector('span')?.textContent).toBe('Grace');
+        expect(() => {
+            app.data.user = {name: 'Imposter'};
+        }).toThrow(TypeError);
+    });
 });

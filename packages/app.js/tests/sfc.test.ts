@@ -230,4 +230,35 @@ describe('single-file components', () => {
         });
         expect(errorSpy.mock.calls.flat().join(' ')).toContain('template-only');
     });
+
+    it('data-on-click and data-component-on-click coexist on one wrapper, firing independently', async () => {
+        const log: string[] = [];
+
+        stubTemplates({
+            root: '<template><div data-component="clicky" data-on-click="domClick" data-component-on-click="componentClick"></div></template>',
+            clicky: `<template><button data-on-click="inner">go</button></template>
+<script>export default {methods: {inner() { this.events.emit('click', 'component'); }}};</script>`,
+        });
+        const host = mountPoint();
+        new Component({
+            element: host,
+            methods: {
+                domClick() {
+                    log.push('dom');
+                },
+                componentClick(event) {
+                    log.push('component:' + (event as CustomEvent).detail);
+                },
+            },
+        });
+
+        await vi.waitFor(() => {
+            expect(host.querySelector('button')).not.toBeNull();
+        });
+
+        (host.querySelector('button') as HTMLButtonElement).click();
+
+        expect(log).toContain('component:component');
+        expect(log).toContain('dom');
+    });
 });

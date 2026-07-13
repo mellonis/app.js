@@ -29,10 +29,10 @@ describe('props', () => {
     it('re-seeds on Object.is change with ONE batched props event and ONE child pass', async () => {
         stubTemplates({
             root: '<template><div data-component="pair" data-component-prop-a="x" data-component-prop-b="x + 1"></div></template>',
-            pair: `<template><p>\${a}:\${b}</p></template>
+            pair: `<template><p>\${a}:\${b}</p><i id="state">\${batches}|\${lastKeys}</i></template>
 <script>
     export default {
-        data: () => ({batches: 0}),
+        data: () => ({batches: 0, lastKeys: ''}),
         mounted() {
             this.events.on('props', event => {
                 this.data.batches += 1;
@@ -47,11 +47,34 @@ describe('props', () => {
         await app.ready;
 
         expect(host.querySelector('p')?.textContent).toBe('1:2');
+        expect(host.querySelector('#state')?.textContent).toBe('0|');
 
         app.data.x = 5;
 
         await vi.waitFor(() => {
             expect(host.querySelector('p')?.textContent).toBe('5:6');
+        });
+        // ONE batch carrying BOTH changed props — the spec's central proof
+        expect(host.querySelector('#state')?.textContent).toBe('1|a,b');
+    });
+
+    it("a grandchild observes its parent's own prop traffic via onParent('props')", async () => {
+        (window as unknown as {__overheard: unknown[]}).__overheard = [];
+        stubTemplates({
+            root: '<template><div data-component="middle" data-component-prop-x="n"></div></template>',
+            middle: `<template><div data-component="leaf"></div></template>
+<script>export default {};</script>`,
+            leaf: `<template></template>
+<script>export default {mounted() { this.events.onParent('props', event => { window.__overheard.push(event.detail); }); }};</script>`,
+        });
+        const host = mountPoint();
+        const app = new Component({element: host, data: {n: 1}});
+        await app.ready;
+
+        app.data.n = 2;
+
+        await vi.waitFor(() => {
+            expect((window as unknown as {__overheard: unknown[]}).__overheard).toEqual([{x: {value: 2, previous: 1}}]);
         });
     });
 
