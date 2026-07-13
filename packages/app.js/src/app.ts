@@ -65,6 +65,24 @@ interface LoadComponentOptions {
     parentComponentNameList?: string[];
 }
 
+interface PropBinding {
+    propName: string;
+    expression: string;
+    lastSeeded: unknown;
+}
+
+interface PropBindingRecord {
+    bindings: PropBinding[];
+    scopeRef?: ForBlockScopeRef;
+    reportedErrorKinds: Set<string>;
+}
+
+const RESERVED_IDENTIFIERS = new Set(['break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else', 'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import', 'in', 'instanceof', 'new', 'null', 'return', 'super', 'switch', 'this', 'throw', 'true', 'try', 'typeof', 'var', 'void', 'while', 'with', 'yield', 'let', 'static', 'implements', 'interface', 'package', 'private', 'protected', 'public', 'await']);
+
+function isValidPropName(name: string): boolean {
+    return /^[A-Za-z_$][\w$]*$/.test(name) && !RESERVED_IDENTIFIERS.has(name);
+}
+
 interface ComponentEvents {
     emit(name: string, payload?: unknown): void;
     on(name: string, handler: (event: CustomEvent) => void): void;
@@ -172,6 +190,10 @@ export default class Component {
     declare readonly methods: Readonly<Record<string, BoundComponentMethod>>;
     declare readonly ready: Promise<void>;
     declare readonly events: ComponentEvents;
+    declare readonly props: Readonly<Record<string, unknown>>;
+
+    #propsBacking: Record<string, unknown> = {};
+    readonly #propBindings = new Map<Component, PropBindingRecord>();
 
     readonly #showIfElementToDataMap = new Map<HTMLElement, ShowIfEntry>();
     readonly #displayIfElementToDataMap = new Map<HTMLElement, DisplayIfEntry>();
@@ -213,6 +235,8 @@ export default class Component {
                     throw new Error(`The "${name}" prop collides with a data key of this component`);
                 }
             });
+
+            this.#propsBacking = {...internal.propSeeds};
 
             this.#definition = internal.definition;
             this.#parentEventTarget = internal.parentEventTarget;
@@ -271,6 +295,17 @@ export default class Component {
         Object.freeze(events);
         Object.defineProperty(this, 'events', {enumerable: true, value: events});
 
+        const propsView: Record<string, unknown> = {};
+
+        (internal ? internal.propNames : []).forEach(name => {
+            Object.defineProperty(propsView, name, {
+                enumerable: true,
+                get: () => this.#propsBacking[name],
+            });
+        });
+        Object.preventExtensions(propsView);
+        Object.defineProperty(this, 'props', {enumerable: true, value: propsView});
+
         element.dataset['component'] = this.componentName;
         Object.defineProperty(this, 'ready', {
             enumerable: true,
@@ -304,6 +339,7 @@ export default class Component {
         this.#valueElementToDataMap.clear();
         this.#textNodeToDataMap.clear();
         this.#forBlocks.clear();
+        this.#propBindings.clear();
     }
 
     #runMounted(): void {
@@ -370,9 +406,23 @@ export default class Component {
 
         Object.keys(data).forEach(key => {
             if (data[key] !== null && typeof data[key] === 'object' && !Array.isArray(data[key])) {
+                const nestedGhost = this.#createGhost(data[key] as Record<string, unknown>);
+
                 Object.defineProperty(ghost, key, {
                     enumerable: true,
-                    value: this.#createGhost(data[key] as Record<string, unknown>),
+                    get() {
+                        return nestedGhost;
+                    },
+                    // Objects stay replace-only, but the array idiom's escape
+                    // hatch works here too: self-assignment (data.user =
+                    // data.user) triggers a pass after in-place mutation
+                    set(newValue: unknown) {
+                        if (newValue !== nestedGhost) {
+                            throw new TypeError(`The "${key}" object cannot be replaced wholesale — mutate its keys, then assign it to itself to update`);
+                        }
+
+                        app.#runUpdatePass();
+                    },
                 });
             } else {
                 Object.defineProperty(ghost, key, {
@@ -411,6 +461,10 @@ export default class Component {
 
         Object.keys(this.data).forEach(key => {
             evaluatingCode += `var ${key} = this.data['${key}'];`;
+        });
+
+        Object.keys(this.props).forEach(key => {
+            evaluatingCode += `var ${key} = this.props['${key}'];`;
         });
 
         if (scope) {
@@ -853,6 +907,14 @@ export default class Component {
                 return;
             }
 
+            const rootIdentifier = /^([A-Za-z_$][\w$]*)/.exec(element.dataset['value']!)?.[1];
+
+            if (rootIdentifier && rootIdentifier in this.props) {
+                console.error(`data-value cannot bind the "${rootIdentifier}" prop — props are inputs; copy into data to edit`, element);
+
+                return;
+            }
+
             this.#valueElementToDataMap.set(element, {
                 expression: element.dataset['value']!,
             });
@@ -899,6 +961,55 @@ export default class Component {
             });
     }
 
+    #collectProps(element: HTMLElement, scope?: Record<string, unknown>): {seeds: Record<string, unknown>; names: string[]; bindings: PropBinding[]; failedSeedKinds: Set<string>} {
+        const seeds: Record<string, unknown> = {};
+        const names: string[] = [];
+        const bindings: PropBinding[] = [];
+        const failedSeedKinds = new Set<string>();
+
+        Object.keys(element.dataset).forEach(datasetKey => {
+            if (!datasetKey.startsWith('componentProp')) {
+                return;
+            }
+
+            const tail = datasetKey.slice('componentProp'.length);
+
+            if (!tail || !/^[A-Z]/.test(tail)) {
+                console.error(`Malformed component prop attribute (expected data-component-prop-<name>)`, element);
+
+                return;
+            }
+
+            const propName = tail[0].toLowerCase() + tail.slice(1);
+
+            if (!isValidPropName(propName)) {
+                console.error(`"${propName}" is not a usable prop name (reserved or invalid identifier) — prop skipped`, element);
+
+                return;
+            }
+
+            const expression = element.dataset[datasetKey]!;
+            let value: unknown;
+
+            try {
+                value = this.#evaluate({expression, scope});
+            } catch (error) {
+                console.error(`Can't evaluate the "${expression}" prop expression`, element, error);
+                value = undefined;
+                // Pre-arms the #12 cadence: the seed log IS the "logged once
+                // while broken" for this kind — the first update pass must not
+                // repeat it while the same expression still throws
+                failedSeedKinds.add(`prop:${propName}`);
+            }
+
+            seeds[propName] = value;
+            names.push(propName);
+            bindings.push({propName, expression, lastSeeded: value});
+        });
+
+        return {seeds, names, bindings, failedSeedKinds};
+    }
+
     #mountChildOrInclude(element: HTMLElement, parentComponentNameList: string[]): Promise<void> {
         const componentName = element.dataset['component']!;
 
@@ -917,15 +1028,20 @@ export default class Component {
                 return this.#loadComponent({componentWrapper: element, componentName, parentComponentNameList});
             }
 
+            const {seeds, names, bindings, failedSeedKinds} = this.#collectProps(element);
             const child = Component.#instantiate({
                 element,
                 componentName,
                 definition,
                 parent: this,
                 ancestorChain: parentComponentNameList,
-                propSeeds: {},
-                propNames: [],
+                propSeeds: seeds,
+                propNames: names,
             });
+
+            if (bindings.length) {
+                this.#propBindings.set(child, {bindings, reportedErrorKinds: failedSeedKinds});
+            }
 
             return child.ready;
         });
@@ -948,6 +1064,66 @@ export default class Component {
         this.#updateLists();
         this.#updateVisibility();
         this.#updateValues(sourceElement);
+        this.#updateProps();
+    }
+
+    #updateProps(): void {
+        this.#propBindings.forEach((record, child) => {
+            if (child.#destroyed) {
+                return;
+            }
+
+            const errorKindsThisPass = new Set<string>();
+            const scope = this.#scopeForBinding(record.scopeRef);
+            const changes: Record<string, {value: unknown; previous: unknown}> = {};
+            let changed = false;
+
+            record.bindings.forEach(binding => {
+                let value: unknown;
+
+                try {
+                    value = this.#evaluate({expression: binding.expression, scope});
+                } catch (error) {
+                    const kind = `prop:${binding.propName}`;
+
+                    errorKindsThisPass.add(kind);
+
+                    if (!record.reportedErrorKinds.has(kind)) {
+                        record.reportedErrorKinds.add(kind);
+                        console.error(`Can't evaluate the "${binding.expression}" prop expression`, child.element, error);
+                    }
+
+                    return;
+                }
+
+                if (!Object.is(value, binding.lastSeeded)) {
+                    changes[binding.propName] = {value, previous: binding.lastSeeded};
+                    binding.lastSeeded = value;
+                    child.#propsBacking[binding.propName] = value;
+                    changed = true;
+                }
+            });
+
+            record.reportedErrorKinds.forEach(kind => {
+                if (!errorKindsThisPass.has(kind)) {
+                    record.reportedErrorKinds.delete(kind);
+                }
+            });
+
+            if (changed) {
+                // Browsers report a listener exception without breaking the
+                // dispatch; non-browser EventTargets may propagate it — either
+                // way the batch contract (ONE event, then ONE child pass, and
+                // phase 4 continuing for the remaining children) must survive
+                try {
+                    child.#eventTarget.dispatchEvent(new CustomEvent(RESERVED_EVENT_NAME, {detail: changes}));
+                } catch (error) {
+                    console.error(`A "${RESERVED_EVENT_NAME}" event handler threw`, child.element, error);
+                }
+
+                child.#runUpdatePass();
+            }
+        });
     }
 
     #updateValues(element: HTMLElement | null = null): void {
