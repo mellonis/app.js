@@ -27,11 +27,11 @@
                 this.data.nextId += 1;
                 this.data.draft = '';
             },
-            toggleTodo(event, item) {
-                this.data.todos = this.data.todos.map(todo => todo.id === item.id ? {...todo, done: !todo.done} : todo);
+            toggleTodo(event) {
+                this.data.todos = this.data.todos.map(todo => todo.id === event.detail ? {...todo, done: !todo.done} : todo);
             },
-            removeTodo(event, item) {
-                this.data.todos = this.data.todos.filter(todo => todo.id !== item.id);
+            removeTodo(event) {
+                this.data.todos = this.data.todos.filter(todo => todo.id !== event.detail);
             },
         },
     });

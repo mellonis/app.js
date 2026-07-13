@@ -13,6 +13,20 @@ A tiny reactive framework
 - Lists render with `data-for` (a bare array expression) plus a required `data-key`; item expressions see `$item`, `$index`, `$array`
 - Arrays update by replacement: `todos = [...todos, item]` — prefer copy-based expressions like `todos.filter(...)` / `[...todos].sort(...)`
 
+# Components
+
+- A component template file may carry a `<script>` after its `<template>` — a single-file component (SFC), with its own `data`, `methods`, `props`, `events`, and `mounted()` lifecycle. A file with no `<script>` stays a template-only include, sharing the parent's `data`/`methods`.
+- Props flow in, events flow out:
+
+  ```html
+  <div data-component="todo-item"
+       data-component-prop-todo="$item"
+       data-component-on-toggled="toggleTodo"></div>
+  ```
+
+- `data:` module imports (how a component's `<script>` is loaded) require a CSP without a strict `script-src` — fine for the teaching context.
+- Student trap: component events always ride the `data-component-` prefix — `data-on-removed` on a component element binds a DOM event that will never fire.
+
 # Quick start
 
 ```sh

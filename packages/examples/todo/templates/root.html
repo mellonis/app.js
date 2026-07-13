@@ -7,10 +7,10 @@
     <p data-show-if="todos.length === 0">Nothing to do — add the first task.</p>
     <ul data-show-if="todos.length > 0">
         <li data-for="todos" data-key="$item.id">
-            <span data-show-if="!$item.done">${$item.title}</span>
-            <s data-show-if="$item.done">${$item.title}</s>
-            <button data-on-click="toggleTodo">toggle</button>
-            <button data-on-click="removeTodo">remove</button>
+            <div data-component="todo-item"
+                 data-component-prop-todo="$item"
+                 data-component-on-toggled="toggleTodo"
+                 data-component-on-removed="removeTodo"></div>
         </li>
     </ul>
 </template>
