@@ -180,7 +180,47 @@ describe('per-item components', () => {
         expect(host.querySelectorAll('li')).toHaveLength(1);
     });
 
-    it.fails('a cleanup final-emit that ADDS an item mid-sweep renders it (issue #22)', async () => {
+    it('a cleanup final-emit that REORDERS survivors wins over the stale outer pass (issue #23)', async () => {
+        stubTemplates({
+            root: '<template><ul><li data-for="todos" data-key="$item.id"><div data-component="reorderer" data-component-prop-todo="$item" data-component-on-gone="onGone"></div></li></ul></template>',
+            reorderer: `<template><span>\${todo.title}</span></template>
+<script>
+    export default {
+        mounted() {
+            return () => {
+                this.events.emit('gone', this.props.todo.id);
+            };
+        },
+    };
+</script>`,
+        });
+        const host = mountPoint();
+        const app = new Component({
+            element: host,
+            data: {todos: [{id: 1, title: 'a'}, {id: 2, title: 'b'}, {id: 3, title: 'c'}]},
+            methods: {
+                onGone(event) {
+                    if ((event as CustomEvent).detail === 1) {
+                        this.data.todos = [{id: 2, title: 'b'}, {id: 3, title: 'c'}];
+                    }
+                },
+            },
+        });
+        await app.ready;
+        await vi.waitFor(() => {
+            expect(host.querySelectorAll('span')).toHaveLength(3);
+        });
+
+        // Evict id 1 with survivors ordered [c, b]; the cleanup's handler
+        // re-sets them to [b, c] mid-sweep — the newer pass must win
+        app.data.todos = [{id: 3, title: 'c'}, {id: 2, title: 'b'}];
+
+        await vi.waitFor(() => {
+            expect([...host.querySelectorAll('span')].map(s => s.textContent)).toEqual(['b', 'c']);
+        });
+    });
+
+    it('a cleanup final-emit that ADDS an item mid-sweep renders it (issue #22)', async () => {
         stubTemplates({
             root: '<template><ul><li data-for="todos" data-key="$item.id"><div data-component="adder" data-component-prop-todo="$item" data-component-on-gone="onGone"></div></li></ul></template>',
             adder: `<template><span>\${todo.title}</span></template>

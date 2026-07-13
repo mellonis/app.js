@@ -60,6 +60,7 @@ interface ForBlock {
     entries: Map<string, ForBlockEntry>;
     reportedErrorKinds: Set<string>;
     ancestorChain: string[];
+    generation: number;
 }
 
 interface LoadComponentOptions {
@@ -574,6 +575,7 @@ export default class Component {
             entries: new Map(),
             reportedErrorKinds: new Set(),
             ancestorChain: parentComponentNameList,
+            generation: 0,
         });
     }
 
@@ -759,6 +761,10 @@ export default class Component {
     }
 
     #reconcileBlock(block: ForBlock, items: unknown[], errorKindsThisPass: Set<string>): void {
+        // A newer (re-entrant) pass bumps the generation; a pass that detects
+        // it was superseded abandons the block (issues #22/#23)
+        const generation = ++block.generation;
+
         block.array = items;
 
         const desired: ForBlockEntry[] = [];
@@ -802,30 +808,58 @@ export default class Component {
             desired.push(entry);
         });
 
-        block.entries.forEach((entry, key) => {
-            if (!seenKeys.has(key)) {
-                entry.boundElements.forEach(boundElement => {
-                    if (boundElement instanceof Text) {
-                        this.#textNodeToDataMap.delete(boundElement);
+        // Sweep a SNAPSHOT: entries a re-entrant pass adds mid-sweep must be
+        // invisible here (issue #22 — they belong to newer data, not to this
+        // pass's stale seenKeys)
+        for (const [key, entry] of [...block.entries]) {
+            if (seenKeys.has(key)) {
+                continue;
+            }
 
-                        return;
-                    }
+            if (block.entries.get(key) !== entry) {
+                // Already evicted by a re-entrant pass
+                continue;
+            }
 
-                    this.#valueElementToDataMap.delete(boundElement);
-                    this.#showIfElementToDataMap.delete(boundElement);
-                    this.#displayIfElementToDataMap.delete(boundElement);
-                });
+            entry.boundElements.forEach(boundElement => {
+                if (boundElement instanceof Text) {
+                    this.#textNodeToDataMap.delete(boundElement);
 
-                if (entry.child) {
-                    this.#propBindings.delete(entry.child);
-                    this.#childComponents.delete(entry.child);
-                    entry.child.destroy();
+                    return;
                 }
 
+                this.#valueElementToDataMap.delete(boundElement);
+                this.#showIfElementToDataMap.delete(boundElement);
+                this.#displayIfElementToDataMap.delete(boundElement);
+            });
+
+            if (entry.child) {
+                this.#propBindings.delete(entry.child);
+                this.#childComponents.delete(entry.child);
+                // destroy() before entries.delete: a cleanup's final emit still
+                // resolves (event, item, index) through the live entry
+                entry.child.destroy();
+            }
+
+            if (block.entries.get(key) === entry) {
+                // Still ours — a re-entrant pass may have evicted it already,
+                // or even re-added a FRESH entry under this key (never clobber that)
                 entry.element.remove();
                 block.entries.delete(key);
             }
-        });
+
+            if (block.generation !== generation) {
+                // destroy() ran a cleanup whose emit triggered a re-entrant
+                // pass over this block — it reconciled NEWER data; anything
+                // this pass would still do is stale by definition (issues
+                // #22/#23). Abandon.
+                return;
+            }
+        }
+
+        if (block.generation !== generation) {
+            return;
+        }
 
         const parent = block.anchorEnd.parentNode!;
         let cursor: ChildNode = block.anchorStart.nextSibling!;

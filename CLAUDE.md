@@ -19,7 +19,7 @@ npm run ex:todo     # serve the todo example on :8123
 npm test -w app.js -- tests/components.test.ts   # single test file
 ```
 
-Framework tests import `../src/app` directly; examples smoke tests drive the built `dist/` over real HTTP via `serve.mjs` + happy-dom's `Browser` (with `enableJavaScriptEvaluation: true`). Convention for newly found bugs: encode each as an `it.fails` case asserting the *desired* behavior (with its issue number in the test name) — once the bug is fixed, that test starts failing; remove the `.fails` modifier as part of the fix. Currently open: issue #22 (`item-components.test.ts` — mid-sweep additions destroyed by the eviction sweep).
+Framework tests import `../src/app` directly; examples smoke tests drive the built `dist/` over real HTTP via `serve.mjs` + happy-dom's `Browser` (with `enableJavaScriptEvaluation: true`). Convention for newly found bugs: encode each as an `it.fails` case asserting the *desired* behavior (with its issue number in the test name) — once the bug is fixed, that test starts failing; remove the `.fails` modifier as part of the fix. No such markers are currently open.
 
 Known upstream issue: happy-dom ≤ 20.10.6 silently drops falsy non-string `textContent` assignments (`el.textContent = 0` renders empty; browsers render `"0"`) — [capricorn86/happy-dom#2236](https://github.com/capricorn86/happy-dom/issues/2236), fix submitted as [PR #2237](https://github.com/capricorn86/happy-dom/pull/2237). The counter example sidesteps it via `${}` interpolation (always assigns `String(value)` to a Text node), so its smoke test asserts the zero render directly; the bug still affects `data-value` bindings that assign falsy non-strings — when a fixed happy-dom ships, bump the pin.
 
