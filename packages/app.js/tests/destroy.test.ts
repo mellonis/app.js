@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import App from '../src/app';
+import Component from '../src/app';
 import { mountPoint, resetTemplateCache, stubTemplates } from './helpers';
 
 afterEach(() => {
@@ -14,7 +14,7 @@ describe('destroy()', () => {
         stubTemplates({root: '<template><button data-on-click="hit">go</button></template>'});
         const host = mountPoint();
         const hit = vi.fn();
-        const app = new App({element: host, methods: {hit}});
+        const app = new Component({element: host, methods: {hit}});
         await app.ready;
 
         app.destroy();
@@ -26,7 +26,7 @@ describe('destroy()', () => {
     it('stops reacting to data changes but leaves the DOM in place', async () => {
         stubTemplates({root: '<template><span>${title}</span></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {title: 'before'}});
+        const app = new Component({element: host, data: {title: 'before'}});
         await app.ready;
 
         app.destroy();
@@ -39,7 +39,7 @@ describe('destroy()', () => {
     it('aborts input write-back', async () => {
         stubTemplates({root: '<template><input data-value="name"></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {name: 'before'}});
+        const app = new Component({element: host, data: {name: 'before'}});
         await app.ready;
 
         app.destroy();
@@ -55,7 +55,7 @@ describe('destroy()', () => {
     it('stops list reconciliation', async () => {
         stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id"></li></ul></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {items: [{id: 1}]}});
+        const app = new Component({element: host, data: {items: [{id: 1}]}});
         await app.ready;
 
         expect(host.querySelectorAll('li')).toHaveLength(1);
@@ -72,11 +72,11 @@ describe('destroy()', () => {
         stubTemplates({root: '<template><p>content</p></template>'});
 
         const host = mountPoint();
-        const app = new App({element: host});
+        const app = new Component({element: host});
 
         app.destroy();
 
-        await expect(app.ready).rejects.toEqual(new Error('The app was destroyed'));
+        await expect(app.ready).rejects.toEqual(new Error('The component was destroyed'));
         expect(host.querySelector('p')).toBeNull();
 
         await new Promise(resolve => setTimeout(resolve, 0));
@@ -86,7 +86,7 @@ describe('destroy()', () => {
 
     it('is idempotent', async () => {
         stubTemplates({root: '<template></template>'});
-        const app = new App({element: mountPoint()});
+        const app = new Component({element: mountPoint()});
         await app.ready;
 
         app.destroy();

@@ -1,10 +1,11 @@
-type AppMethod = (event: Event, item?: unknown, index?: number) => void;
+type ComponentMethod = (this: Component, event: Event, item?: unknown, index?: number) => void;
+type BoundComponentMethod = (event: Event, item?: unknown, index?: number) => void;
 
-interface AppOptions {
+interface ComponentOptions {
     element?: HTMLElement;
     componentName?: string | null;
     data?: Record<string, unknown>;
-    methods?: Record<string, AppMethod>;
+    methods?: Record<string, ComponentMethod>;
 }
 
 interface ShowIfEntry {
@@ -64,7 +65,7 @@ interface LoadComponentOptions {
     parentComponentNameList?: string[];
 }
 
-const APP_DESTROYED_MESSAGE = 'The app was destroyed';
+const COMPONENT_DESTROYED_MESSAGE = 'The component was destroyed';
 
 // Brace-counting scanner (not a regex): splits template text into static
 // parts and ${expression} parts; `\${` escapes a literal `${`. Throws on an
@@ -140,11 +141,11 @@ const DATA_VALUE_FORM_ONLY_MESSAGE = 'data-value only works on form controls (in
 const elementsWithDataOnAttributeSelector = eventNameList.map(eventName => `[data-on-${eventName}]`).join(',');
 const dataOnAttributeNameRegExp = new RegExp(`^data-on-(${eventNameList.join('|')})$`);
 
-export default class App {
+export default class Component {
     declare readonly componentName: string;
     declare readonly data: Record<string, unknown>;
     declare readonly element: HTMLElement;
-    declare readonly methods: Readonly<Record<string, AppMethod>>;
+    declare readonly methods: Readonly<Record<string, BoundComponentMethod>>;
     declare readonly ready: Promise<void>;
 
     readonly #showIfElementToDataMap = new Map<HTMLElement, ShowIfEntry>();
@@ -161,8 +162,8 @@ export default class App {
 
     static readonly #templateNameToTemplatePromiseMap = new Map<string, Promise<string>>();
 
-    constructor({element = document.body, componentName = 'root', data = {}, methods = {}}: AppOptions = {}) {
-        const boundMethods: Record<string, AppMethod> = Object.assign({}, methods);
+    constructor({element = document.body, componentName = 'root', data = {}, methods = {}}: ComponentOptions = {}) {
+        const boundMethods: Record<string, ComponentMethod> = Object.assign({}, methods);
         Object.keys(boundMethods).forEach(key => {
             boundMethods[key] = boundMethods[key].bind(this);
         });
@@ -195,7 +196,7 @@ export default class App {
         // touch `ready`, and prevents unhandled-rejection noise; deliberate
         // destruction is not an error worth logging
         this.ready.catch((error: unknown) => {
-            if (!(error instanceof Error && error.message === APP_DESTROYED_MESSAGE)) {
+            if (!(error instanceof Error && error.message === COMPONENT_DESTROYED_MESSAGE)) {
                 console.error(error);
             }
         });
@@ -594,7 +595,7 @@ export default class App {
 
     #handleEvent({methodName, event, item, index}: {methodName: string; event: Event; item?: unknown; index?: number}): void {
         if (this.methods.hasOwnProperty(methodName)) {
-            this.methods[methodName].apply(null, [event, item, index]);
+            this.methods[methodName](event, item, index);
         }
     }
 
@@ -614,11 +615,11 @@ export default class App {
 
         parentComponentNameList = [componentName, ...parentComponentNameList];
 
-        return App.loadTemplate(componentName)
+        return Component.loadTemplate(componentName)
             .then(template => this.#renderTemplate({template, parentComponentNameList}))
             .then(documentFragment => {
                 if (this.#destroyed) {
-                    throw new Error(APP_DESTROYED_MESSAGE);
+                    throw new Error(COMPONENT_DESTROYED_MESSAGE);
                 }
 
                 // childNodes, not children: anchor comments for initially
@@ -805,14 +806,14 @@ export default class App {
     }
 
     static clearTemplateCache(): void {
-        App.#templateNameToTemplatePromiseMap.clear();
+        Component.#templateNameToTemplatePromiseMap.clear();
     }
 
     static loadTemplate(templateName: string): Promise<string> {
         let loadTemplatePromise: Promise<string>;
 
-        if (App.#templateNameToTemplatePromiseMap.has(templateName)) {
-            loadTemplatePromise = App.#templateNameToTemplatePromiseMap.get(templateName)!;
+        if (Component.#templateNameToTemplatePromiseMap.has(templateName)) {
+            loadTemplatePromise = Component.#templateNameToTemplatePromiseMap.get(templateName)!;
         } else {
             loadTemplatePromise = fetch(`/templates/${templateName}.html`)
                 .then(response => {
@@ -823,12 +824,12 @@ export default class App {
                     return response.text();
                 })
                 .catch(error => {
-                    App.#templateNameToTemplatePromiseMap.delete(templateName);
+                    Component.#templateNameToTemplatePromiseMap.delete(templateName);
 
                     return Promise.reject(error);
                 });
 
-            App.#templateNameToTemplatePromiseMap.set(templateName, loadTemplatePromise);
+            Component.#templateNameToTemplatePromiseMap.set(templateName, loadTemplatePromise);
         }
 
         return loadTemplatePromise;

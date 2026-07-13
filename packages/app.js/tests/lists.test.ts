@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import App from '../src/app';
+import Component from '../src/app';
 import { mountPoint, resetTemplateCache, stubTemplates } from './helpers';
 
 afterEach(() => {
@@ -14,7 +14,7 @@ const LIST_TEMPLATE = '<template><ul><li data-for="items" data-key="$item.id"><s
 async function mountList(initialItems: unknown[], template = LIST_TEMPLATE) {
     stubTemplates({root: template});
     const host = mountPoint();
-    const app = new App({element: host, data: {items: initialItems, other: 0}});
+    const app = new Component({element: host, data: {items: initialItems, other: 0}});
     await app.ready;
 
     return {app, host};
@@ -258,7 +258,7 @@ describe('data-for: item scope and handlers', () => {
         stubTemplates({root: '<template><div><button data-for="items" data-key="$item.id" data-on-click="pick">${$item.label}</button></div></template>'});
 
         const host = mountPoint();
-        const app = new App({
+        const app = new Component({
             element: host,
             data: {items: [{id: 1, label: 'a'}, {id: 2, label: 'b'}]},
             methods: {
@@ -291,7 +291,7 @@ describe('data-for: item scope and handlers', () => {
         stubTemplates({root: '<template><button data-on-click="hit">go</button></template>'});
 
         const host = mountPoint();
-        const app = new App({
+        const app = new Component({
             element: host,
             methods: {
                 hit(event, item) {
@@ -313,7 +313,7 @@ describe('data-for: item scope and handlers', () => {
         stubTemplates({root: template});
 
         const host = mountPoint();
-        const app = new App({element: host, data: {items: [{id: 1}], showDetails: false}});
+        const app = new Component({element: host, data: {items: [{id: 1}], showDetails: false}});
 
         await app.ready;
 
@@ -334,7 +334,7 @@ describe('data-for: error cadence (issue #12)', () => {
 
         stubTemplates({root: template});
         const host = mountPoint();
-        const app = new App({element: host, data: {items: [{id: 1}], broken: true, other: 0}});
+        const app = new Component({element: host, data: {items: [{id: 1}], broken: true, other: 0}});
         await app.ready;
 
         expect(errorSpy).toHaveBeenCalledTimes(1);
@@ -360,7 +360,7 @@ describe('data-for: error cadence (issue #12)', () => {
 
         stubTemplates({root: template});
         const host = mountPoint();
-        const app = new App({element: host, data: {value: 5, other: 0}});
+        const app = new Component({element: host, data: {value: 5, other: 0}});
         await app.ready;
 
         expect(errorSpy).toHaveBeenCalledTimes(1);

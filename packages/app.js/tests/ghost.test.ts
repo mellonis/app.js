@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import App from '../src/app';
+import Component from '../src/app';
 import { flush, mountPoint, resetTemplateCache, stubTemplates } from './helpers';
 
 afterEach(() => {
@@ -12,7 +12,7 @@ afterEach(() => {
 describe('ghost reactivity', () => {
     it('exposes initial data', async () => {
         stubTemplates({root: '<template></template>'});
-        const app = new App({
+        const app = new Component({
             element: mountPoint(),
             data: {title: 'hello', user: {name: 'Ada'}},
         });
@@ -25,7 +25,7 @@ describe('ghost reactivity', () => {
     it('updates a bound element when a top-level key is set', async () => {
         stubTemplates({root: '<template><span>${title}</span></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {title: 'hello'}});
+        const app = new Component({element: host, data: {title: 'hello'}});
 
         await vi.waitFor(() => {
             expect(host.querySelector('span')?.textContent).toBe('hello');
@@ -39,7 +39,7 @@ describe('ghost reactivity', () => {
     it('updates a bound element when a nested key is set', async () => {
         stubTemplates({root: '<template><span>${user.name}</span></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {user: {name: 'Ada'}}});
+        const app = new Component({element: host, data: {user: {name: 'Ada'}}});
 
         await vi.waitFor(() => {
             expect(host.querySelector('span')?.textContent).toBe('Ada');
@@ -53,7 +53,7 @@ describe('ghost reactivity', () => {
     it('evaluates full JS expressions over top-level keys', async () => {
         stubTemplates({root: '<template><span>${firstName + \' \' + lastName}</span></template>'});
         const host = mountPoint();
-        new App({element: host, data: {firstName: 'Ada', lastName: 'Lovelace'}});
+        new Component({element: host, data: {firstName: 'Ada', lastName: 'Lovelace'}});
 
         await vi.waitFor(() => {
             expect(host.querySelector('span')?.textContent).toBe('Ada Lovelace');
@@ -62,7 +62,7 @@ describe('ghost reactivity', () => {
 
     it('has a fixed shape: adding keys throws', async () => {
         stubTemplates({root: '<template></template>'});
-        const app = new App({element: mountPoint(), data: {title: 'x'}});
+        const app = new Component({element: mountPoint(), data: {title: 'x'}});
         await flush();
 
         expect(() => {
@@ -72,7 +72,7 @@ describe('ghost reactivity', () => {
 
     it('does not allow replacing a nested object wholesale', async () => {
         stubTemplates({root: '<template></template>'});
-        const app = new App({element: mountPoint(), data: {user: {name: 'Ada'}}});
+        const app = new Component({element: mountPoint(), data: {user: {name: 'Ada'}}});
         await flush();
 
         expect(() => {
@@ -82,7 +82,7 @@ describe('ghost reactivity', () => {
 
     it('stores an input element\'s value when one is assigned', async () => {
         stubTemplates({root: '<template></template>'});
-        const app = new App({element: mountPoint(), data: {title: 'x'}});
+        const app = new Component({element: mountPoint(), data: {title: 'x'}});
         await flush();
 
         const input = document.createElement('input');
@@ -95,12 +95,12 @@ describe('ghost reactivity', () => {
     it('does not crash when initial data contains null (issue #3)', () => {
         stubTemplates({root: '<template></template>'});
 
-        expect(() => new App({element: mountPoint(), data: {user: null}})).not.toThrow();
+        expect(() => new Component({element: mountPoint(), data: {user: null}})).not.toThrow();
     });
 
     it('treats a null value as a readable, settable primitive (issue #3)', async () => {
         stubTemplates({root: '<template></template>'});
-        const app = new App({element: mountPoint(), data: {user: null}});
+        const app = new Component({element: mountPoint(), data: {user: null}});
         await flush();
 
         expect(app.data.user).toBeNull();
@@ -112,7 +112,7 @@ describe('ghost reactivity', () => {
 
     it('treats arrays as replaceable leaf values (issue #6)', async () => {
         stubTemplates({root: '<template></template>'});
-        const app = new App({element: mountPoint(), data: {items: [1, 2]}});
+        const app = new Component({element: mountPoint(), data: {items: [1, 2]}});
         await flush();
 
         expect(Array.isArray(app.data.items)).toBe(true);
@@ -125,7 +125,7 @@ describe('ghost reactivity', () => {
 
     it('does not recurse into arrays nested in objects (issue #6)', async () => {
         stubTemplates({root: '<template></template>'});
-        const app = new App({element: mountPoint(), data: {user: {tags: ['a']}}});
+        const app = new Component({element: mountPoint(), data: {user: {tags: ['a']}}});
         await flush();
 
         const user = app.data.user as Record<string, unknown>;

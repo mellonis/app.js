@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import App from '../src/app';
+import Component from '../src/app';
 import { resetTemplateCache, stubTemplates } from './helpers';
 
 afterEach(() => {
@@ -8,12 +8,12 @@ afterEach(() => {
     resetTemplateCache();
 });
 
-describe('App.loadTemplate', () => {
+describe('Component.loadTemplate', () => {
     it('fetches each template once and caches the promise', async () => {
         const fetchMock = stubTemplates({widget: '<template><i></i></template>'});
 
-        await App.loadTemplate('widget');
-        await App.loadTemplate('widget');
+        await Component.loadTemplate('widget');
+        await Component.loadTemplate('widget');
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
         expect(fetchMock).toHaveBeenCalledWith('/templates/widget.html');
@@ -22,11 +22,11 @@ describe('App.loadTemplate', () => {
     it('evicts a failed fetch from the cache so it can be retried', async () => {
         stubTemplates({});
 
-        await expect(App.loadTemplate('late')).rejects.toEqual(new Error('404: /templates/late.html'));
+        await expect(Component.loadTemplate('late')).rejects.toEqual(new Error('404: /templates/late.html'));
 
         const fetchMock = stubTemplates({late: '<template></template>'});
 
-        await expect(App.loadTemplate('late')).resolves.toBe('<template></template>');
+        await expect(Component.loadTemplate('late')).resolves.toBe('<template></template>');
         expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
@@ -37,11 +37,11 @@ describe('App.loadTemplate', () => {
             text: () => Promise.resolve('<h1>Not Found</h1>'),
         })));
 
-        await expect(App.loadTemplate('late')).rejects.toEqual(new Error('HTTP 404 for late'));
+        await expect(Component.loadTemplate('late')).rejects.toEqual(new Error('HTTP 404 for late'));
 
         const fetchMock = stubTemplates({late: '<template></template>'});
 
-        await expect(App.loadTemplate('late')).resolves.toBe('<template></template>');
+        await expect(Component.loadTemplate('late')).resolves.toBe('<template></template>');
         expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 });

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import App from '../src/app';
+import Component from '../src/app';
 import { mountPoint, resetTemplateCache, stubTemplates } from './helpers';
 
 afterEach(() => {
@@ -13,7 +13,7 @@ describe('data-show-if', () => {
     it('toggles a nested element via an anchor comment', async () => {
         stubTemplates({root: '<template><div><p data-show-if="visible">secret</p></div></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {visible: true}});
+        const app = new Component({element: host, data: {visible: true}});
 
         await vi.waitFor(() => {
             expect(host.querySelector('p')).not.toBeNull();
@@ -29,7 +29,7 @@ describe('data-show-if', () => {
     it('shows an initially hidden top-level element when its expression becomes truthy (issue #8)', async () => {
         stubTemplates({root: '<template><p data-show-if="visible">secret</p></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {visible: false}});
+        const app = new Component({element: host, data: {visible: false}});
         await app.ready;
 
         expect(host.querySelector('p')).toBeNull();
@@ -46,7 +46,7 @@ describe('data-value', () => {
     it('binds an input two-way for a nested key', async () => {
         stubTemplates({root: '<template><input data-value="user.name"></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {user: {name: 'before'}}});
+        const app = new Component({element: host, data: {user: {name: 'before'}}});
 
         const input = await vi.waitFor(() => {
             const el = host.querySelector('input');
@@ -64,7 +64,7 @@ describe('data-value', () => {
     it('write-back survives a data key named "element" (issue #11)', async () => {
         stubTemplates({root: '<template><input data-value="name"></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {element: 'decoy', name: 'before'}});
+        const app = new Component({element: host, data: {element: 'decoy', name: 'before'}});
         await app.ready;
 
         const input = host.querySelector('input')!;
@@ -78,7 +78,7 @@ describe('data-value', () => {
     it('binds an input two-way for a top-level key (issue #2)', async () => {
         stubTemplates({root: '<template><input data-value="name"><span>${name}</span></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {name: 'before'}});
+        const app = new Component({element: host, data: {name: 'before'}});
         await app.ready;
 
         const input = host.querySelector('input')!;
@@ -96,7 +96,7 @@ describe('data-display-if', () => {
     it('toggles inline display while preserving the original inline value', async () => {
         stubTemplates({root: '<template><p data-display-if="visible" style="display: flex">x</p></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {visible: false}});
+        const app = new Component({element: host, data: {visible: false}});
         await app.ready;
 
         const paragraph = host.querySelector('p')!;
@@ -112,7 +112,7 @@ describe('data-display-if', () => {
     it('restores an empty inline display so stylesheet rules apply again', async () => {
         stubTemplates({root: '<template><p data-display-if="visible">x</p></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {visible: true}});
+        const app = new Component({element: host, data: {visible: true}});
         await app.ready;
 
         const paragraph = host.querySelector('p')!;
@@ -131,7 +131,7 @@ describe('data-display-if', () => {
     it('keeps the element in the DOM so sibling structure is stable', async () => {
         stubTemplates({root: '<template><div><i data-display-if="visible">a</i><i>b</i></div></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {visible: false}});
+        const app = new Component({element: host, data: {visible: false}});
         await app.ready;
 
         const wrapper = host.querySelector('div')!;
@@ -147,7 +147,7 @@ describe('data-display-if', () => {
     it('works inside data-for items with item scope', async () => {
         stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id"><span data-display-if="$item.on">${$item.label}</span></li></ul></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {items: [{id: 1, on: true, label: 'a'}, {id: 2, on: false, label: 'b'}]}});
+        const app = new Component({element: host, data: {items: [{id: 1, on: true, label: 'a'}, {id: 2, on: false, label: 'b'}]}});
         await app.ready;
 
         const spans = [...host.querySelectorAll('span')] as HTMLElement[];
@@ -164,7 +164,7 @@ describe('data-display-if', () => {
     it('works on the data-for element itself (per-item visibility)', async () => {
         stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id" data-display-if="$item.on">${$item.label}</li></ul></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {items: [{id: 1, on: false, label: 'a'}, {id: 2, on: true, label: 'b'}]}});
+        const app = new Component({element: host, data: {items: [{id: 1, on: false, label: 'a'}, {id: 2, on: true, label: 'b'}]}});
         await app.ready;
 
         const listItems = [...host.querySelectorAll('li')] as HTMLElement[];
@@ -182,7 +182,7 @@ describe('data-display-if', () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id"><span data-display-if="$item.on"></span></li></ul></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {items: [{id: 1, on: true}], other: 0}});
+        const app = new Component({element: host, data: {items: [{id: 1, on: true}], other: 0}});
         await app.ready;
 
         const detachedSpan = host.querySelector('span')! as HTMLElement;
@@ -199,7 +199,7 @@ describe('data-value: form controls only (issue #18)', () => {
     it('binds a textarea two-way', async () => {
         stubTemplates({root: '<template><textarea data-value="note"></textarea></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {note: 'before'}});
+        const app = new Component({element: host, data: {note: 'before'}});
         await app.ready;
 
         const textarea = host.querySelector('textarea')!;
@@ -219,7 +219,7 @@ describe('data-value: form controls only (issue #18)', () => {
     it('binds a select two-way via the change event', async () => {
         stubTemplates({root: '<template><select data-value="pick"><option value="a">A</option><option value="b">B</option></select></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {pick: 'b'}});
+        const app = new Component({element: host, data: {pick: 'b'}});
         await app.ready;
 
         const select = host.querySelector('select')!;
@@ -236,7 +236,7 @@ describe('data-value: form controls only (issue #18)', () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({root: '<template><input type="checkbox" data-value="agree"></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {agree: false}});
+        const app = new Component({element: host, data: {agree: false}});
         await app.ready;
 
         expect(errorSpy.mock.calls.flat().join(' ')).toContain('checked');
@@ -253,7 +253,7 @@ describe('data-value: form controls only (issue #18)', () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({root: '<template><span data-value="title">static</span></template>'});
         const host = mountPoint();
-        const app = new App({element: host, data: {title: 't'}});
+        const app = new Component({element: host, data: {title: 't'}});
         await app.ready;
 
         expect(errorSpy.mock.calls.flat().join(' ')).toContain('form controls');
@@ -273,7 +273,7 @@ describe('data-on-*', () => {
         stubTemplates({root: '<template><button data-on-click="hit">go</button></template>'});
         const host = mountPoint();
         const calls: Array<{self: unknown; event: Event}> = [];
-        const app = new App({
+        const app = new Component({
             element: host,
             methods: {
                 hit(this: unknown, event: Event) {
@@ -299,7 +299,7 @@ describe('data-on-*', () => {
         stubTemplates({root: '<template><form data-on-submit="onSubmit"></form></template>'});
         const host = mountPoint();
         const onSubmit = vi.fn();
-        new App({element: host, methods: {onSubmit}});
+        new Component({element: host, methods: {onSubmit}});
 
         const form = await vi.waitFor(() => {
             const el = host.querySelector('form');
@@ -315,7 +315,7 @@ describe('data-on-*', () => {
     it('ignores unknown method names without throwing', async () => {
         stubTemplates({root: '<template><button data-on-click="missing">go</button></template>'});
         const host = mountPoint();
-        new App({element: host});
+        new Component({element: host});
 
         const button = await vi.waitFor(() => {
             const el = host.querySelector('button');

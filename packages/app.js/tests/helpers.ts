@@ -1,5 +1,5 @@
 import { vi } from 'vitest';
-import App from '../src/app';
+import Component from '../src/app';
 
 export function stubTemplates(templates: Record<string, string>) {
     const fetchMock = vi.fn((url: string) => {
@@ -19,7 +19,7 @@ export function stubTemplates(templates: Record<string, string>) {
 }
 
 export function resetTemplateCache(): void {
-    App.clearTemplateCache();
+    Component.clearTemplateCache();
 }
 
 export function mountPoint(): HTMLElement {

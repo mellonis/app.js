@@ -5,8 +5,8 @@ A tiny reactive framework
 
 - Templates should be placed in /templates directory
 - Meaningful attributes in templates are: data-component, data-show-if, data-display-if, data-value, data-on-*, data-for + data-key
-- App needs to be constructed with parameters: element, data, methods and componentName, which is optional
-- An App instance exposes `ready` — a promise that resolves when the initial mount finishes (and rejects with the original error if it fails)
+- Component needs to be constructed with parameters: element, data, methods and componentName, which is optional
+- A Component instance exposes `ready` — a promise that resolves when the initial mount finishes (and rejects with the original error if it fails)
 - `app.destroy()` stops the app: listeners are removed (one `AbortController` for everything), updates stop, the rendered DOM stays as-is
 - A template that fails to load (network error or HTTP error status) is not cached — the next load retries the fetch
 - Template text supports `${expression}` interpolation (escape a literal with `\${`)

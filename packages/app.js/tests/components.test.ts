@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import App from '../src/app';
+import Component from '../src/app';
 import { mountPoint, resetTemplateCache, stubTemplates } from './helpers';
 
 afterEach(() => {
@@ -16,7 +16,7 @@ describe('component loading', () => {
             child: '<template><span class="c">child</span></template>',
         });
         const host = mountPoint();
-        new App({element: host});
+        new Component({element: host});
 
         await vi.waitFor(() => {
             expect(host.querySelector('[data-component="child"] .c')).not.toBeNull();
@@ -29,7 +29,7 @@ describe('component loading', () => {
             widget: '<template><span class="w">w</span></template>',
         });
         const host = mountPoint();
-        new App({element: host});
+        new Component({element: host});
 
         await vi.waitFor(() => {
             expect(host.querySelectorAll('.w')).toHaveLength(2);
@@ -44,7 +44,7 @@ describe('component loading', () => {
             widget: '<template><span class="w">w</span></template>',
         });
         const host = mountPoint();
-        new App({element: host});
+        new Component({element: host});
 
         await vi.waitFor(() => {
             expect(host.querySelectorAll('.w')).toHaveLength(2);
@@ -54,7 +54,7 @@ describe('component loading', () => {
     it('still rejects a self-including component', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({selfy: '<template><div data-component="selfy"></div></template>'});
-        const app = new App({element: mountPoint(), componentName: 'selfy'});
+        const app = new Component({element: mountPoint(), componentName: 'selfy'});
 
         await expect(app.ready).rejects.toBe('A component cycle was detected during loading');
     });
@@ -65,7 +65,7 @@ describe('component loading', () => {
             a: '<template><div data-component="b"></div></template>',
             b: '<template><div data-component="a"></div></template>',
         });
-        const app = new App({element: mountPoint(), componentName: 'a'});
+        const app = new Component({element: mountPoint(), componentName: 'a'});
 
         await expect(app.ready).rejects.toBe('A component cycle was detected during loading');
     });
@@ -76,7 +76,7 @@ describe('component loading', () => {
             root: '<template><span>${oops()}</span><span id="ok">${title}</span></template>',
         });
         const host = mountPoint();
-        new App({element: host, data: {title: 't'}});
+        new Component({element: host, data: {title: 't'}});
 
         await vi.waitFor(() => {
             expect(host.querySelector('#ok')?.textContent).toBe('t');
@@ -90,7 +90,7 @@ describe('component loading', () => {
             root: '<template><div><p data-show-if="oops()">maybe</p></div><span id="ok">${title}</span></template>',
         });
         const host = mountPoint();
-        new App({element: host, data: {title: 't'}});
+        new Component({element: host, data: {title: 't'}});
 
         await vi.waitFor(() => {
             expect(host.querySelector('#ok')?.textContent).toBe('t');
@@ -101,7 +101,7 @@ describe('component loading', () => {
     it('exposes a ready promise that resolves after the initial mount (issue #5)', async () => {
         stubTemplates({root: '<template><span class="r">mounted</span></template>'});
         const host = mountPoint();
-        const app = new App({element: host});
+        const app = new Component({element: host});
 
         await app.ready;
 
@@ -111,7 +111,7 @@ describe('component loading', () => {
     it('rejects ready with the original error when mounting fails (issue #5)', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({});
-        const app = new App({element: mountPoint()});
+        const app = new Component({element: mountPoint()});
 
         await expect(app.ready).rejects.toEqual(new Error('404: /templates/root.html'));
     });
@@ -119,7 +119,7 @@ describe('component loading', () => {
     it('rejects a template file whose first child is not a <template> element', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({root: '<div>not a template</div>'});
-        new App({element: mountPoint()});
+        new Component({element: mountPoint()});
 
         await vi.waitFor(() => {
             expect(errorSpy.mock.calls.flat()).toContain('A component template file must have a <template> element as its first child');
