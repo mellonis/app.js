@@ -4,7 +4,7 @@ A tiny reactive framework
 # Overview
 
 - Templates should be placed in /templates directory
-- Meaningful attributes in templates are: data-component, data-show-if, data-display-if, data-value, data-on-*, data-for + data-key
+- Meaningful attributes in templates are: data-component, data-show-if, data-display-if, data-value, data-on-*, data-for + data-key, data-ref
 - Component needs to be constructed with parameters: element, data, methods and componentName, which is optional
 - A Component instance exposes `ready` — a promise that resolves when the initial mount finishes (and rejects with the original error if it fails)
 - `app.destroy()` stops the app: listeners are removed (one `AbortController` for everything), updates stop, the rendered DOM stays as-is
@@ -15,7 +15,7 @@ A tiny reactive framework
 
 # Components
 
-- A component template file may carry a `<script>` after its `<template>` — a single-file component (SFC), with its own `data`, `methods`, `props`, `events`, and `mounted()` lifecycle. A file with no `<script>` stays a template-only include, sharing the parent's `data`/`methods`.
+- A component template file may carry a `<script>` after its `<template>` — a single-file component (SFC), with its own `data`, `methods`, `props`, `events`, `refs`, and `mounted()` lifecycle. A file with no `<script>` stays a template-only include, sharing the parent's `data`/`methods`.
 - Props flow in, events flow out:
 
   ```html
