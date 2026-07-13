@@ -60,9 +60,9 @@ describe('data-for: mount and setup errors', () => {
         expect(errorSpy.mock.calls.flat().join(' ')).toContain('data-show-if');
     });
 
-    it('errors when the template subtree contains data-component or nested data-for', async () => {
+    it('errors when the template subtree contains a nested data-for', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-        const {host} = await mountList([{id: 1}], '<template><ul><li data-for="items" data-key="$item.id"><div data-component="widget"></div></li></ul></template>');
+        const {host} = await mountList([{id: 1}], '<template><ul><li data-for="items" data-key="$item.id"><p data-for="items" data-key="$item.id"></p></li></ul></template>');
 
         expect(host.querySelectorAll('li')).toHaveLength(0);
         expect(errorSpy.mock.calls.flat().join(' ')).toContain('nested');

@@ -46,6 +46,7 @@ interface ForBlockEntry {
     item: unknown;
     index: number;
     boundElements: (HTMLElement | Text)[];
+    child?: Component;
 }
 
 interface ForBlock {
@@ -57,6 +58,7 @@ interface ForBlock {
     array: unknown[];
     entries: Map<string, ForBlockEntry>;
     reportedErrorKinds: Set<string>;
+    ancestorChain: string[];
 }
 
 interface LoadComponentOptions {
@@ -529,7 +531,7 @@ export default class Component {
         }
     }
 
-    #extractForBlock(element: HTMLElement): void {
+    #extractForBlock(element: HTMLElement, parentComponentNameList: string[]): void {
         if (element.dataset['showIf'] !== undefined || element.dataset['component'] !== undefined) {
             console.error('data-for cannot be combined with data-show-if or data-component on the same element', element);
             element.remove();
@@ -546,8 +548,8 @@ export default class Component {
             return;
         }
 
-        if (element.querySelector('[data-for], [data-component]') !== null) {
-            console.error('data-for blocks cannot contain nested data-for or data-component elements', element);
+        if (element.querySelector('[data-for]') !== null) {
+            console.error('data-for blocks cannot contain nested data-for elements', element);
             element.remove();
 
             return;
@@ -570,6 +572,7 @@ export default class Component {
             array: [],
             entries: new Map(),
             reportedErrorKinds: new Set(),
+            ancestorChain: parentComponentNameList,
         });
     }
 
@@ -639,6 +642,58 @@ export default class Component {
                         this.#handleEvent({methodName, event, item: entry?.item, index: entry?.index});
                     }, {signal: this.#abortController.signal});
                 });
+        });
+
+        [root, ...root.querySelectorAll<HTMLElement>('[data-component]')].forEach(element => {
+            if (element.dataset['component'] === undefined) {
+                return;
+            }
+
+            if (formControlTagNames.has(element.tagName)) {
+                console.error('data-component cannot be placed on a form control', element);
+
+                return;
+            }
+
+            const componentName = element.dataset['component']!;
+            const entryAtWiring = block.entries.get(key);
+
+            Component.#loadDefinition(componentName).then(definition => {
+                // Liveness gate: same entry object still present, parent alive
+                if (this.#destroyed || block.entries.get(key) !== entryAtWiring) {
+                    return;
+                }
+
+                if (definition === null) {
+                    console.error(`A template-only include ("${componentName}") inside a data-for block is not supported — give it a <script> to make it a component`, element);
+
+                    return;
+                }
+
+                const itemScope = this.#scopeForBinding(scopeRef);
+                const {seeds, names, bindings, failedSeedKinds} = this.#collectProps(element, itemScope);
+                const child = Component.#instantiate({
+                    element,
+                    componentName,
+                    definition,
+                    parent: this,
+                    ancestorChain: [...block.ancestorChain],
+                    propSeeds: seeds,
+                    propNames: names,
+                    entryRef: scopeRef,
+                });
+
+                entryAtWiring!.child = child;
+
+                if (bindings.length) {
+                    // failedSeedKinds comes from #collectProps (Task 5's Fix 1):
+                    // pre-armed kinds prevent double-logging a persisting seed
+                    // error on the first pass — thread it, do NOT pass a fresh Set
+                    this.#propBindings.set(child, {bindings, scopeRef, reportedErrorKinds: failedSeedKinds});
+                }
+            }).catch(error => {
+                console.error(`Can't load the "${componentName}" component`, element, error);
+            });
         });
 
         return boundElements;
@@ -759,6 +814,13 @@ export default class Component {
                     this.#showIfElementToDataMap.delete(boundElement);
                     this.#displayIfElementToDataMap.delete(boundElement);
                 });
+
+                if (entry.child) {
+                    this.#propBindings.delete(entry.child);
+                    this.#childComponents.delete(entry.child);
+                    entry.child.destroy();
+                }
+
                 entry.element.remove();
                 block.entries.delete(key);
             }
@@ -904,7 +966,7 @@ export default class Component {
                 return;
             }
 
-            this.#extractForBlock(element);
+            this.#extractForBlock(element, parentComponentNameList);
         });
 
         // After extraction, so block subtrees are wired per clone instead
