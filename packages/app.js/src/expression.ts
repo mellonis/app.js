@@ -273,7 +273,7 @@ class Parser {
         }
 
         if (this.#is('|>') && left.kind === 'arrow' && !left.paren) {
-            this.#error('Mixing an arrow with |> needs parentheses — parenthesize the arrow or the pipe');
+            this.#error('A pipe inside an arrow body needs parentheses — parenthesize the pipe: x => (a |> f)');
         }
 
         while (this.#is('|>')) {
