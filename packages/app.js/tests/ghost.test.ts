@@ -80,16 +80,17 @@ describe('ghost reactivity', () => {
         }).toThrow(TypeError);
     });
 
-    it('stores an input element\'s value when one is assigned', async () => {
+    it('stores an assigned element as-is — no value extraction magic (issue #15)', async () => {
         stubTemplates({root: '<template></template>'});
         const app = new Component({element: mountPoint(), data: {title: 'x'}});
         await flush();
 
         const input = document.createElement('input');
+
         input.value = 'from input';
         app.data.title = input;
 
-        expect(app.data.title).toBe('from input');
+        expect(app.data.title).toBe(input);
     });
 
     it('does not crash when initial data contains null (issue #3)', () => {

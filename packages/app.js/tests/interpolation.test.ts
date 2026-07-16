@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Component from '../src/app';
+import type { ComponentMethod } from '../src/app';
 import { mountPoint, resetTemplateCache, stubTemplates } from './helpers';
 
 afterEach(() => {
@@ -135,5 +136,32 @@ describe('${} interpolation', () => {
         app.data.count = 2;
 
         expect(host.querySelector('p')?.textContent).toBe('1');
+    });
+
+    it('pipes through a method formatter (issue #15)', async () => {
+        stubTemplates({root: '<template><p>${todos |> left} left</p></template>'});
+        const host = mountPoint();
+        const left = (todos: Array<{done: boolean}>) => todos.filter(todo => !todo.done).length;
+
+        new Component({
+            element: host,
+            data: {todos: [{done: false}, {done: true}, {done: false}]},
+            methods: {left: left as unknown as ComponentMethod},
+        });
+
+        await vi.waitFor(() => {
+            expect(host.querySelector('p')?.textContent).toBe('2 left');
+        });
+    });
+
+    it('an unknown identifier error names the whole chain (issue #15)', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({root: '<template><p>${ghost}</p></template>'});
+        const host = mountPoint();
+        new Component({element: host, data: {}});
+
+        await vi.waitFor(() => {
+            expect(errorSpy.mock.calls.flat().join(' ')).toContain('$-scope, props, data, methods, globals');
+        });
     });
 });

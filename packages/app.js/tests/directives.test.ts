@@ -40,6 +40,24 @@ describe('data-show-if', () => {
         app.data.visible = false;
         expect(host.querySelector('p')).toBeNull();
     });
+
+    it('a parse error at wiring logs a caret once and skips only that binding (issue #15)', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({root: '<template><p data-show-if="count >">broken</p><i>${count}</i></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {count: 1}});
+        await app.ready;
+
+        expect(host.querySelector('i')?.textContent).toBe('1');
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain('^');
+
+        const callsAfterMount = errorSpy.mock.calls.length;
+
+        app.data.count = 2;
+
+        expect(host.querySelector('i')?.textContent).toBe('2');
+        expect(errorSpy.mock.calls.length).toBe(callsAfterMount);
+    });
 });
 
 describe('data-value', () => {

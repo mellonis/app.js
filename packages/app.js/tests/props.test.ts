@@ -170,19 +170,20 @@ describe('props', () => {
         expect(host.querySelector('#bad p')).toBeNull();
     });
 
-    it('reserved-identifier and empty prop names are loud errors, prop skipped', async () => {
+    it('malformed and unreferenceable prop names error; former reserved words are legal (issue #15)', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({
-            root: '<template><div data-component="greeter" data-component-prop-class="1" data-component-prop-who="\'Ada\'"></div></template>',
-            greeter: GREETER,
+            root: '<template><div data-component="greeter" data-component-prop-class="7" data-component-prop-typeof="1" data-component-prop-who="&quot;Ada&quot;"></div></template>',
+            greeter: `<template><p>\${greeting}, \${who}! (\${class})</p></template>
+<script>export default {data: () => ({greeting: 'Hello'})};</script>`,
         });
         const host = mountPoint();
         new Component({element: host});
 
         await vi.waitFor(() => {
-            expect(host.querySelector('p')?.textContent).toBe('Hello, Ada!');
+            expect(host.querySelector('p')?.textContent).toBe('Hello, Ada! (7)');
         });
-        expect(errorSpy.mock.calls.flat().join(' ')).toContain('class');
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain('typeof');
     });
 
     it('a throwing seed leaves undefined; a later undefined evaluation stays silent; the first non-undefined dispatches', async () => {

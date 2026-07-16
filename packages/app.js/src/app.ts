@@ -1,4 +1,7 @@
-type ComponentMethod = (this: Component, event: Event, item?: unknown, index?: number) => void;
+import { compile, renderCaret, ExpressionParseError } from './expression.js';
+import type { IdentifierResolver } from './expression.js';
+
+export type ComponentMethod = (this: Component, event: Event, item?: unknown, index?: number) => void;
 type BoundComponentMethod = (event: Event, item?: unknown, index?: number) => void;
 
 interface ComponentOptions {
@@ -81,10 +84,11 @@ interface PropBindingRecord {
     reportedErrorKinds: Set<string>;
 }
 
-const RESERVED_IDENTIFIERS = new Set(['break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else', 'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import', 'in', 'instanceof', 'new', 'null', 'return', 'super', 'switch', 'this', 'throw', 'true', 'try', 'typeof', 'var', 'void', 'while', 'with', 'yield', 'let', 'static', 'implements', 'interface', 'package', 'private', 'protected', 'public', 'await', 'eval', 'arguments']);
+const EXPRESSION_GLOBALS = new Map<string, unknown>(Object.entries({Math, JSON, Number, String, Boolean, Array, isNaN, isFinite, parseInt, parseFloat}));
+const UNREFERENCEABLE_PROP_NAMES = new Set(['typeof', 'true', 'false', 'null', 'undefined']);
 
 function isValidPropName(name: string): boolean {
-    return /^[A-Za-z_$][\w$]*$/.test(name) && !RESERVED_IDENTIFIERS.has(name);
+    return /^[A-Za-z_$][\w$]*$/.test(name) && !UNREFERENCEABLE_PROP_NAMES.has(name);
 }
 
 interface ComponentEvents {
@@ -209,8 +213,7 @@ export default class Component {
     #cleanup: (() => void) | undefined;
     readonly #refsBacking: Record<string, HTMLElement> = {};
 
-    #evaluationScope: Record<string, unknown> | undefined;
-    #evaluationElement: HTMLElement | undefined;
+    #writeBackSource: HTMLElement | undefined;
 
     readonly #abortController = new AbortController();
     #destroyed = false;
@@ -382,6 +385,11 @@ export default class Component {
     #wireTextInterpolations(root: Node, scopeRef?: ForBlockScopeRef): Text[] {
         const boundTextNodes: Text[] = [];
 
+        // Some parsers split a text run into sibling Text nodes around a bare
+        // ">" (e.g. inside the |> pipe token); normalize() re-merges them so
+        // an interpolation never straddles two nodes
+        root.normalize();
+
         collectTextNodes(root).forEach(textNode => {
             const text = textNode.textContent ?? '';
 
@@ -415,7 +423,7 @@ export default class Component {
             const replacements = parts.map(part => {
                 const node = document.createTextNode(part.isExpression ? '' : part.value);
 
-                if (part.isExpression) {
+                if (part.isExpression && this.#compileAtWiring(part.value, textNode)) {
                     this.#textNodeToDataMap.set(node, {expression: part.value, scopeRef});
                     boundTextNodes.push(node);
                 }
@@ -460,21 +468,9 @@ export default class Component {
                         return data[key];
                     },
                     set(newValue: unknown) {
-                        const isNewValueFromInputElement = newValue instanceof HTMLInputElement
-                            || newValue instanceof HTMLTextAreaElement
-                            || newValue instanceof HTMLSelectElement;
+                        data[key] = newValue;
 
-                        if (isNewValueFromInputElement) {
-                            data[key] = newValue.value;
-                        } else {
-                            data[key] = newValue;
-                        }
-
-                        if (isNewValueFromInputElement) {
-                            app.#runUpdatePass(newValue);
-                        } else {
-                            app.#runUpdatePass();
-                        }
+                        app.#runUpdatePass();
                     },
                 });
             }
@@ -485,51 +481,58 @@ export default class Component {
         return ghost;
     }
 
-    #evaluate({expression = null, element = null, scope}: {expression?: string | null; element?: HTMLElement | null; scope?: Record<string, unknown>}): unknown {
-        let evaluatingCode = '';
+    #resolverFor(scope?: Record<string, unknown>): IdentifierResolver {
+        return name => {
+            if (scope && Object.hasOwn(scope, name)) {
+                return {found: true, value: scope[name]};
+            }
 
-        Object.keys(this.data).forEach(key => {
-            evaluatingCode += `var ${key} = this.data['${key}'];`;
-        });
+            if (Object.hasOwn(this.props, name)) {
+                return {found: true, value: (this.props as Record<string, unknown>)[name]};
+            }
 
-        Object.keys(this.props).forEach(key => {
-            evaluatingCode += `var ${key} = this.props['${key}'];`;
-        });
+            if (Object.hasOwn(this.data, name)) {
+                return {found: true, value: (this.data as Record<string, unknown>)[name]};
+            }
 
-        if (scope) {
-            // Declared after the data keys so scope names shadow them; reached
-            // through this.#evaluationScope because `this` is a keyword and
-            // private names are visible in direct eval — no data key can
-            // shadow or name this channel
-            Object.keys(scope).forEach(key => {
-                evaluatingCode += `var ${key} = this.#evaluationScope['${key}'];`;
-            });
-        }
+            if (Object.hasOwn(this.methods, name)) {
+                return {found: true, value: this.methods[name]};
+            }
 
-        if (expression) {
-            evaluatingCode += expression;
-        } else if (element) {
-            const entry = this.#valueElementToDataMap.get(element)!;
+            if (EXPRESSION_GLOBALS.has(name)) {
+                return {found: true, value: EXPRESSION_GLOBALS.get(name)};
+            }
 
-            // Rooted at this.data so the assignment hits the ghost setter, and
-            // the input delivered via this.#evaluationElement — a data key named
-            // `element` would shadow the parameter inside the eval scope
-            evaluatingCode += `this.data.${entry.expression} = this.#evaluationElement;`;
-        }
+            return {found: false};
+        };
+    }
 
-        // Save/restore rather than clear: stack discipline so nested
-        // per-component scopes can evaluate within an outer pass
-        const previousScope = this.#evaluationScope;
-        const previousElement = this.#evaluationElement;
+    // Write-back resolves ONLY through data, returning the root VALUE for
+    // path walks; bare-root writes never reach this resolver — the listener
+    // writes those through the ghost directly so its setter fires
+    get #dataResolver(): IdentifierResolver {
+        return name => Object.hasOwn(this.data, name)
+            ? {found: true, value: (this.data as Record<string, unknown>)[name]}
+            : {found: false};
+    }
 
-        this.#evaluationScope = scope;
-        this.#evaluationElement = element ?? undefined;
+    #evaluate({expression, scope}: {expression: string; scope?: Record<string, unknown>}): unknown {
+        return compile(expression).evaluate(this.#resolverFor(scope));
+    }
 
+    #compileAtWiring(expression: string, context: Node): boolean {
         try {
-            return eval(evaluatingCode);
-        } finally {
-            this.#evaluationScope = previousScope;
-            this.#evaluationElement = previousElement;
+            compile(expression);
+
+            return true;
+        } catch (error) {
+            if (error instanceof ExpressionParseError) {
+                console.error(`Can't parse the "${expression}" expression:\n${renderCaret(error)}\n${error.message}`, context);
+
+                return false;
+            }
+
+            throw error;
         }
     }
 
@@ -557,9 +560,18 @@ export default class Component {
             return;
         }
 
+        const listExpression = element.dataset['for']!;
+        const listExpressionCompiles = this.#compileAtWiring(listExpression, element);
+        const keyExpressionCompiles = this.#compileAtWiring(keyExpression, element);
+
+        if (!listExpressionCompiles || !keyExpressionCompiles) {
+            element.remove();
+
+            return;
+        }
+
         const anchorStart = document.createComment(' data-for start ');
         const anchorEnd = document.createComment(' data-for end ');
-        const listExpression = element.dataset['for']!;
 
         element.replaceWith(anchorStart, anchorEnd);
         element.removeAttribute('data-for');
@@ -608,6 +620,10 @@ export default class Component {
         });
 
         root.querySelectorAll<HTMLElement>('[data-show-if]').forEach(element => {
+            if (!this.#compileAtWiring(element.dataset['showIf']!, element)) {
+                return;
+            }
+
             this.#showIfElementToDataMap.set(element, {
                 anchor: document.createComment(' an anchor comment '),
                 expression: element.dataset['showIf']!,
@@ -621,6 +637,10 @@ export default class Component {
         // it toggles style.display, so there is no anchor conflict
         [root, ...root.querySelectorAll<HTMLElement>('[data-display-if]')].forEach(element => {
             if (element.dataset['displayIf'] === undefined) {
+                return;
+            }
+
+            if (!this.#compileAtWiring(element.dataset['displayIf']!, element)) {
                 return;
             }
 
@@ -1014,6 +1034,10 @@ export default class Component {
         this.#wireTextInterpolations(documentFragment);
 
         documentFragment.querySelectorAll<HTMLElement>('[data-show-if]').forEach(element => {
+            if (!this.#compileAtWiring(element.dataset['showIf']!, element)) {
+                return;
+            }
+
             this.#showIfElementToDataMap.set(element, {
                 anchor: document.createComment(' an anchor comment '),
                 expression: element.dataset['showIf']!,
@@ -1022,6 +1046,10 @@ export default class Component {
         });
 
         documentFragment.querySelectorAll<HTMLElement>('[data-display-if]').forEach(element => {
+            if (!this.#compileAtWiring(element.dataset['displayIf']!, element)) {
+                return;
+            }
+
             this.#displayIfElementToDataMap.set(element, {
                 expression: element.dataset['displayIf']!,
                 originalDisplay: element.style.display,
@@ -1041,6 +1069,10 @@ export default class Component {
         });
 
         documentFragment.querySelectorAll<HTMLElement>('[data-value]').forEach(element => {
+            if (!this.#compileAtWiring(element.dataset['value']!, element)) {
+                return;
+            }
+
             if (!formControlTagNames.has(element.tagName)) {
                 console.error(DATA_VALUE_FORM_ONLY_MESSAGE, element);
 
@@ -1053,10 +1085,16 @@ export default class Component {
                 return;
             }
 
-            const rootIdentifier = /^([A-Za-z_$][\w$]*)/.exec(element.dataset['value']!)?.[1];
+            const compiled = compile(element.dataset['value']!);
 
-            if (rootIdentifier && Object.hasOwn(this.props, rootIdentifier)) {
-                console.error(`data-value cannot bind the "${rootIdentifier}" prop — props are inputs; copy into data to edit`, element);
+            if (!compiled.assignable) {
+                console.error('data-value needs a plain dot path (name, user.email) — computed steps and ?. can\'t guarantee a reactive write', element);
+
+                return;
+            }
+
+            if (Object.hasOwn(this.props, compiled.rootIdentifier!)) {
+                console.error(`data-value cannot bind the "${compiled.rootIdentifier}" prop — props are inputs; copy into data to edit`, element);
 
                 return;
             }
@@ -1066,7 +1104,19 @@ export default class Component {
             });
 
             element.addEventListener(element.tagName === 'SELECT' ? 'change' : 'input', () => {
-                this.#evaluate({element});
+                this.#writeBackSource = element;
+
+                try {
+                    if (compiled.source.trim() === compiled.rootIdentifier) {
+                        (this.data as Record<string, unknown>)[compiled.rootIdentifier!] = (element as HTMLInputElement).value;
+                    } else {
+                        compiled.assign(this.#dataResolver, (element as HTMLInputElement).value);
+                    }
+                } catch (error) {
+                    console.error(`Can't write back the "${compiled.source}" expression`, element, error);
+                } finally {
+                    this.#writeBackSource = undefined;
+                }
             }, {signal: this.#abortController.signal});
         });
 
@@ -1135,6 +1185,11 @@ export default class Component {
             }
 
             const expression = element.dataset[datasetKey]!;
+
+            if (!this.#compileAtWiring(expression, element)) {
+                return;
+            }
+
             let value: unknown;
 
             try {
@@ -1202,10 +1257,16 @@ export default class Component {
         }
     }
 
-    #runUpdatePass(sourceElement: HTMLElement | null = null): void {
+    #runUpdatePass(): void {
         if (this.#destroyed) {
             return;
         }
+
+        // Consumed at entry so a nested (re-entrant) pass sees nothing and
+        // re-writes its own bound element normally
+        const sourceElement = this.#writeBackSource;
+
+        this.#writeBackSource = undefined;
 
         this.#updateLists();
         this.#updateVisibility();
@@ -1272,9 +1333,9 @@ export default class Component {
         });
     }
 
-    #updateValues(element: HTMLElement | null = null): void {
+    #updateValues(sourceElement: HTMLElement | undefined = undefined): void {
         this.#valueElementToDataMap.forEach((entry, valueElement) => {
-            if (valueElement !== element) {
+            if (valueElement !== sourceElement) {
                 let newValue: unknown;
 
                 try {
