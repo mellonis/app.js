@@ -517,8 +517,8 @@ export default class Component {
             evaluatingCode += `this.data.${entry.expression} = this.#evaluationElement;`;
         }
 
-        // Save/restore rather than clear: stack discipline for the day
-        // nested scopes (per-component, #7) evaluate within an outer pass
+        // Save/restore rather than clear: stack discipline so nested
+        // per-component scopes can evaluate within an outer pass
         const previousScope = this.#evaluationScope;
         const previousElement = this.#evaluationElement;
 
@@ -689,9 +689,9 @@ export default class Component {
                 entryAtWiring!.child = child;
 
                 if (bindings.length) {
-                    // failedSeedKinds comes from #collectProps (Task 5's Fix 1):
-                    // pre-armed kinds prevent double-logging a persisting seed
-                    // error on the first pass — thread it, do NOT pass a fresh Set
+                    // failedSeedKinds carries the seed errors already logged in
+                    // #collectProps — a fresh Set here would double-log a
+                    // persisting seed error on the first update pass
                     this.#propBindings.set(child, {bindings, scopeRef, reportedErrorKinds: failedSeedKinds});
                 }
             }).catch(error => {
@@ -762,7 +762,7 @@ export default class Component {
 
     #reconcileBlock(block: ForBlock, items: unknown[], errorKindsThisPass: Set<string>): void {
         // A newer (re-entrant) pass bumps the generation; a pass that detects
-        // it was superseded abandons the block (issues #22/#23)
+        // it was superseded abandons the block
         const generation = ++block.generation;
 
         block.array = items;
@@ -808,9 +808,9 @@ export default class Component {
             desired.push(entry);
         });
 
-        // Sweep a SNAPSHOT: entries a re-entrant pass adds mid-sweep must be
-        // invisible here (issue #22 — they belong to newer data, not to this
-        // pass's stale seenKeys)
+        // Sweep a SNAPSHOT: entries a re-entrant pass adds mid-sweep belong
+        // to newer data, not to this pass's stale seenKeys — they must be
+        // invisible here
         for (const [key, entry] of [...block.entries]) {
             if (seenKeys.has(key)) {
                 continue;
@@ -851,8 +851,7 @@ export default class Component {
             if (block.generation !== generation) {
                 // destroy() ran a cleanup whose emit triggered a re-entrant
                 // pass over this block — it reconciled NEWER data; anything
-                // this pass would still do is stale by definition (issues
-                // #22/#23). Abandon.
+                // this pass would still do is stale by definition. Abandon.
                 return;
             }
         }
@@ -980,7 +979,8 @@ export default class Component {
                 if (childFailure) {
                     // Mount what succeeded first, then surface the first child
                     // failure through ready — a broken child is loud, but its
-                    // siblings still render (same resilience as issue #4)
+                    // siblings still render (the framework's loud-but-non-fatal
+                    // posture)
                     return Promise.reject(childFailure.reason);
                 }
 
@@ -1142,8 +1142,8 @@ export default class Component {
             } catch (error) {
                 console.error(`Can't evaluate the "${expression}" prop expression`, element, error);
                 value = undefined;
-                // Pre-arms the #12 cadence: the seed log IS the "logged once
-                // while broken" for this kind — the first update pass must not
+                // Pre-arms the once-while-broken cadence: the seed log IS the
+                // "logged once" for this kind — the first update pass must not
                 // repeat it while the same expression still throws
                 failedSeedKinds.add(`prop:${propName}`);
             }
