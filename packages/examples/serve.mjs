@@ -13,7 +13,7 @@ if (!exampleName) {
 
 const examplesRoot = fileURLToPath(new URL('.', import.meta.url));
 const webRoot = resolve(examplesRoot, exampleName);
-const frameworkDist = resolve(examplesRoot, '../app.js/dist/app.js');
+const frameworkDistDir = resolve(examplesRoot, '../app.js/dist');
 
 const contentTypes = {
     '.html': 'text/html; charset=utf-8',
@@ -25,8 +25,13 @@ const server = createServer(async (request, response) => {
     const url = new URL(request.url, `http://${request.headers.host}`);
     let filePath;
 
-    if (url.pathname === '/app.js') {
-        filePath = frameworkDist;
+    // The framework build is more than one file now that app.js imports a
+    // sibling module — any root-level *.js request is checked against dist/
+    // first (ahead of the example's own web root, which never ships one)
+    const distCandidate = /^\/[\w-]+\.js$/.test(url.pathname) ? resolve(frameworkDistDir, url.pathname.slice(1)) : null;
+
+    if (distCandidate) {
+        filePath = distCandidate;
     } else {
         const requested = url.pathname === '/' ? '/index.html' : url.pathname;
         filePath = resolve(join(webRoot, requested));
@@ -43,7 +48,7 @@ const server = createServer(async (request, response) => {
         response.writeHead(200, {'Content-Type': contentTypes[extname(filePath)] ?? 'application/octet-stream'});
         response.end(body);
     } catch {
-        const hint = filePath === frameworkDist
+        const hint = distCandidate
             ? 'Framework build missing - run `npm install` (or `npm run build`) at the repo root first.'
             : `Not found: ${url.pathname}`;
         response.writeHead(404, {'Content-Type': 'text/plain; charset=utf-8'});
