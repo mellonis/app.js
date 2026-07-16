@@ -1596,6 +1596,10 @@ export default class Component {
 
     #updateOneValue(element: HTMLElement): void {
         if (element === this.#writeBackSource) {
+            // Consume on first visit: a later drain iteration (a derived
+            // write to this input's own path) rewrites the input normally
+            this.#writeBackSource = undefined;
+
             return;
         }
 

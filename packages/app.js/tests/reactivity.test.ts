@@ -200,4 +200,33 @@ describe('dependency tracking (phase A: synchronous flush)', () => {
 
         expect(errorSpy.mock.calls.flat().join(' ')).toContain('loop');
     });
+
+    it('a derived write to the input\'s own path rewrites the input (first-visit consumption)', async () => {
+        stubTemplates({root: '<template><input data-value="draft"><p>${draft |> up}</p></template>'});
+        const host = mountPoint();
+        const app = new Component({
+            element: host,
+            data: {draft: ''},
+            methods: {
+                up: ((value: string) => {
+                    const upper = value.toUpperCase();
+
+                    if (value !== upper) {
+                        app.data.draft = upper;
+                    }
+
+                    return upper;
+                }) as never,
+            },
+        });
+        await app.ready;
+
+        const input = host.querySelector('input') as HTMLInputElement;
+
+        input.value = 'a';
+        input.dispatchEvent(new Event('input'));
+
+        expect(app.data.draft).toBe('A');
+        expect(input.value).toBe('A');
+    });
 });
