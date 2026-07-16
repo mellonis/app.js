@@ -225,11 +225,14 @@ describe('props', () => {
 
         app.data.other = 1;
         app.data.other = 2;
+        await app.updated();
 
         expect(countPropErrors()).toBe(1);
 
         app.data.broken = false;
+        await app.updated();
         app.data.broken = true;
+        await app.updated();
 
         expect(countPropErrors()).toBe(2);
     });

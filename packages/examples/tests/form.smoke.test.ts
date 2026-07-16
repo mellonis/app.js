@@ -33,6 +33,7 @@ it('submits the form and logs the collected values to the console', async () => 
     emailInput.value = 'ada@lovelace.dev';
     emailInput.dispatchEvent(new windowRealm.Event('input'));
 
+    await pollFor(() => document.querySelector('p')?.textContent === 'Preview: Ada, ada@lovelace.dev');
     expect(document.querySelector('p')?.textContent).toBe('Preview: Ada, ada@lovelace.dev');
 
     document.querySelector('form')!.dispatchEvent(new windowRealm.Event('submit'));

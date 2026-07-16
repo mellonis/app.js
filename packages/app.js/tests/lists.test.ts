@@ -130,6 +130,7 @@ describe('data-for: reconciliation', () => {
         const [first, second] = [...host.querySelectorAll('li')];
 
         app.data.items = [{id: 1, label: 'a2'}, {id: 2, label: 'b2'}];
+        await app.updated();
 
         const after = [...host.querySelectorAll('li')];
 
@@ -143,6 +144,7 @@ describe('data-for: reconciliation', () => {
         const byLabel = new Map([...host.querySelectorAll('li')].map(li => [li.querySelector('span')!.textContent, li]));
 
         app.data.items = [{id: 3, label: 'c'}, {id: 1, label: 'a'}, {id: 2, label: 'b'}];
+        await app.updated();
 
         const after = [...host.querySelectorAll('li')];
 
@@ -156,6 +158,7 @@ describe('data-for: reconciliation', () => {
         const survivor = host.querySelector('li')!;
 
         app.data.items = [{id: 1, label: 'a'}, {id: 2, label: 'b'}, {id: 3, label: 'c'}];
+        await app.updated();
 
         const after = [...host.querySelectorAll('li')];
 
@@ -169,6 +172,7 @@ describe('data-for: reconciliation', () => {
         const removed = host.querySelectorAll('li')[1];
 
         app.data.items = [{id: 1, label: 'a'}];
+        await app.updated();
 
         expect(host.querySelectorAll('li')).toHaveLength(1);
         expect(removed.isConnected).toBe(false);
@@ -177,6 +181,7 @@ describe('data-for: reconciliation', () => {
         const frozenText = detachedSpan.textContent;
 
         app.data.other = 1;
+        await app.updated();
 
         expect(detachedSpan.textContent).toBe(frozenText);
     });
@@ -189,6 +194,7 @@ describe('data-for: reconciliation', () => {
         expect(host.querySelectorAll('li')).toHaveLength(1);
 
         app.data.items = app.data.items;
+        await app.updated();
 
         expect(host.querySelectorAll('li')).toHaveLength(2);
     });
@@ -201,11 +207,14 @@ describe('data-for: reconciliation', () => {
         expect(errorSpy).toHaveBeenCalledTimes(1);
 
         app.data.other = 1;
+        await app.updated();
 
         expect(errorSpy).toHaveBeenCalledTimes(1);
 
         app.data.items = [{id: 1, label: 'clean'}];
+        await app.updated();
         app.data.items = [{id: 1, label: 'x'}, {id: 1, label: 'y'}];
+        await app.updated();
 
         expect(errorSpy).toHaveBeenCalledTimes(2);
     });
@@ -234,6 +243,7 @@ describe('data-for: item scope and handlers', () => {
         expect(host.querySelectorAll('em')).toHaveLength(1);
 
         app.data.items = [...(app.data.items as unknown[]), {id: 2, label: 'b'}];
+        await app.updated();
 
         const marked = [...host.querySelectorAll('em')];
 
@@ -248,6 +258,7 @@ describe('data-for: item scope and handlers', () => {
         expect(host.querySelector('b')).toBeNull();
 
         app.data.items = [{id: 1, done: true}];
+        await app.updated();
 
         expect(host.querySelector('b')).not.toBeNull();
     });
@@ -278,6 +289,7 @@ describe('data-for: item scope and handlers', () => {
         expect(received[0].index).toBe(0);
 
         app.data.items = [{id: 2, label: 'b'}, {id: 1, label: 'a'}];
+        await app.updated();
 
         buttonFor('a').click();
 
@@ -321,6 +333,7 @@ describe('data-for: item scope and handlers', () => {
 
         app.data.items = [...(app.data.items as unknown[]), {id: 2}];
         app.data.showDetails = true;
+        await app.updated();
 
         expect(host.querySelectorAll('em')).toHaveLength(2);
         expect(errorSpy).not.toHaveBeenCalled();
@@ -341,15 +354,18 @@ describe('data-for: error cadence (issue #12)', () => {
 
         app.data.other = 1;
         app.data.other = 2;
+        await app.updated();
 
         expect(errorSpy).toHaveBeenCalledTimes(1);
 
         app.data.broken = false;
+        await app.updated();
 
         expect(host.querySelectorAll('li')).toHaveLength(1);
         expect(errorSpy).toHaveBeenCalledTimes(1);
 
         app.data.broken = true;
+        await app.updated();
 
         expect(errorSpy).toHaveBeenCalledTimes(2);
     });
@@ -366,14 +382,17 @@ describe('data-for: error cadence (issue #12)', () => {
         expect(errorSpy).toHaveBeenCalledTimes(1);
 
         app.data.other = 1;
+        await app.updated();
 
         expect(errorSpy).toHaveBeenCalledTimes(1);
 
         app.data.value = [];
+        await app.updated();
 
         expect(errorSpy).toHaveBeenCalledTimes(1);
 
         app.data.value = 5;
+        await app.updated();
 
         expect(errorSpy).toHaveBeenCalledTimes(2);
     });
@@ -385,14 +404,17 @@ describe('data-for: error cadence (issue #12)', () => {
         expect(errorSpy).toHaveBeenCalledTimes(1);
 
         app.data.other = 1;
+        await app.updated();
 
         expect(errorSpy).toHaveBeenCalledTimes(1);
 
         app.data.items = [{id: 1, label: 'a'}];
+        await app.updated();
 
         expect(errorSpy).toHaveBeenCalledTimes(1);
 
         app.data.items = [null];
+        await app.updated();
 
         expect(errorSpy).toHaveBeenCalledTimes(2);
     });

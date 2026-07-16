@@ -20,9 +20,11 @@ describe('data-show-if', () => {
         });
 
         app.data.visible = false;
+        await app.updated();
         expect(host.querySelector('p')).toBeNull();
 
         app.data.visible = true;
+        await app.updated();
         expect(host.querySelector('p')).not.toBeNull();
     });
 
@@ -35,9 +37,11 @@ describe('data-show-if', () => {
         expect(host.querySelector('p')).toBeNull();
 
         app.data.visible = true;
+        await app.updated();
         expect(host.querySelector('p')).not.toBeNull();
 
         app.data.visible = false;
+        await app.updated();
         expect(host.querySelector('p')).toBeNull();
     });
 
@@ -54,6 +58,7 @@ describe('data-show-if', () => {
         const callsAfterMount = errorSpy.mock.calls.length;
 
         app.data.count = 2;
+        await app.updated();
 
         expect(host.querySelector('i')?.textContent).toBe('2');
         expect(errorSpy.mock.calls.length).toBe(callsAfterMount);
@@ -106,6 +111,7 @@ describe('data-value', () => {
         input.dispatchEvent(new Event('input'));
 
         expect(app.data.name).toBe('after');
+        await app.updated();
         expect(host.querySelector('span')?.textContent).toBe('after');
     });
 });
@@ -123,6 +129,7 @@ describe('data-display-if', () => {
         expect(paragraph.style.display).toBe('none');
 
         app.data.visible = true;
+        await app.updated();
 
         expect(paragraph.style.display).toBe('flex');
     });
@@ -138,10 +145,12 @@ describe('data-display-if', () => {
         expect(paragraph.style.display).toBe('');
 
         app.data.visible = false;
+        await app.updated();
 
         expect(paragraph.style.display).toBe('none');
 
         app.data.visible = true;
+        await app.updated();
 
         expect(paragraph.style.display).toBe('');
     });
@@ -175,6 +184,7 @@ describe('data-display-if', () => {
         expect(spans[1].style.display).toBe('none');
 
         app.data.items = [{id: 1, on: true, label: 'a'}, {id: 2, on: true, label: 'b'}];
+        await app.updated();
 
         expect(spans[1].style.display).toBe('');
     });
@@ -192,6 +202,7 @@ describe('data-display-if', () => {
         expect(listItems[1].style.display).toBe('');
 
         app.data.items = [{id: 1, on: true, label: 'a'}, {id: 2, on: true, label: 'b'}];
+        await app.updated();
 
         expect(listItems[0].style.display).toBe('');
     });
@@ -226,10 +237,12 @@ describe('data-value: form controls only (issue #18)', () => {
 
         textarea.value = 'after';
         textarea.dispatchEvent(new Event('input'));
+        await app.updated();
 
         expect(app.data.note).toBe('after');
 
         app.data.note = 'again';
+        await app.updated();
 
         expect(textarea.value).toBe('again');
     });

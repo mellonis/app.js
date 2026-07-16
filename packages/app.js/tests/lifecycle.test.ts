@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Component from '../src/app';
-import { mountPoint, resetTemplateCache, stubTemplates } from './helpers';
+import { mountPoint, resetTemplateCache, settle, stubTemplates } from './helpers';
 
 afterEach(() => {
     vi.unstubAllGlobals();
@@ -93,8 +93,9 @@ describe('data-ref', () => {
     export default {
         data: () => ({visible: true}),
         methods: {
-            toggle() {
+            async toggle() {
                 this.data.visible = !this.data.visible;
+                await this.updated();
                 window.__connected = this.refs.para.isConnected;
                 window.__text = this.refs.para.textContent;
             },
@@ -109,11 +110,13 @@ describe('data-ref', () => {
         const button = host.querySelector('button') as HTMLButtonElement;
 
         button.click();
+        await settle(app);
 
         expect((window as unknown as {__connected: boolean}).__connected).toBe(false);
         expect((window as unknown as {__text: string}).__text).toBe('hi');
 
         button.click();
+        await settle(app);
 
         expect((window as unknown as {__connected: boolean}).__connected).toBe(true);
     });

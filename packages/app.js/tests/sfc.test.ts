@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Component from '../src/app';
-import { mountPoint, resetTemplateCache, stubTemplates } from './helpers';
+import { mountPoint, resetTemplateCache, settle, stubTemplates } from './helpers';
 
 afterEach(() => {
     vi.unstubAllGlobals();
@@ -37,6 +37,7 @@ describe('single-file components', () => {
 
         (a.querySelector('button') as HTMLButtonElement).click();
         (a.querySelector('button') as HTMLButtonElement).click();
+        await settle(app);
 
         expect(a.querySelector('p')?.textContent).toBe('Count: 2');
         expect(b.querySelector('p')?.textContent).toBe('Count: 0');
@@ -54,6 +55,7 @@ describe('single-file components', () => {
         expect(host.querySelector('em')?.textContent).toBe('shared');
 
         app.data.title = 'still shared';
+        await app.updated();
 
         expect(host.querySelector('em')?.textContent).toBe('still shared');
     });
@@ -212,6 +214,7 @@ describe('single-file components', () => {
         });
 
         app.events.emit('tick');
+        await settle(app);
 
         expect(host.querySelector('i')?.textContent).toBe('1');
     });

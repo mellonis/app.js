@@ -32,6 +32,7 @@ describe('ghost reactivity', () => {
         });
 
         app.data.title = 'changed';
+        await app.updated();
 
         expect(host.querySelector('span')?.textContent).toBe('changed');
     });
@@ -46,6 +47,7 @@ describe('ghost reactivity', () => {
         });
 
         (app.data.user as Record<string, unknown>).name = 'Grace';
+        await app.updated();
 
         expect(host.querySelector('span')?.textContent).toBe('Grace');
     });
@@ -146,6 +148,7 @@ describe('ghost reactivity', () => {
 
         (app.data.user as {name: string}).name = 'Grace';
         app.data.user = app.data.user;
+        await app.updated();
 
         expect(host.querySelector('span')?.textContent).toBe('Grace');
         expect(() => {

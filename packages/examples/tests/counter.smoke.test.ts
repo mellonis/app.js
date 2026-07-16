@@ -34,11 +34,14 @@ it('renders and counts through the real built framework over real HTTP', async (
     const minus = buttons.find(button => button.textContent === '-1')!;
 
     plus.click();
+    await pollFor(() => count() === 'Count: 1');
     expect(count()).toBe('Count: 1');
 
     plus.click();
+    await pollFor(() => count() === 'Count: 2');
     expect(count()).toBe('Count: 2');
 
     minus.click();
+    await pollFor(() => count() === 'Count: 1');
     expect(count()).toBe('Count: 1');
 });

@@ -20,6 +20,7 @@ describe('${} interpolation', () => {
         expect(host.querySelector('p')?.textContent).toBe('Count: 0!');
 
         app.data.count = 5;
+        await app.updated();
 
         expect(host.querySelector('p')?.textContent).toBe('Count: 5!');
     });
@@ -55,6 +56,7 @@ describe('${} interpolation', () => {
         expect(host.querySelector('p')?.textContent).toBe('[]');
 
         app.data.maybe = 'x';
+        await app.updated();
 
         expect(host.querySelector('p')?.textContent).toBe('[x]');
     });
@@ -71,6 +73,7 @@ describe('${} interpolation', () => {
         expect(errorSpy).toHaveBeenCalled();
 
         app.data.title = 't2';
+        await app.updated();
 
         expect(host.querySelector('#ok')?.textContent).toBe('t2');
     });
@@ -84,6 +87,7 @@ describe('${} interpolation', () => {
         expect([...host.querySelectorAll('li')].map(li => li.textContent)).toEqual(['a:0', 'b:1']);
 
         app.data.items = [{id: 2, label: 'B'}, {id: 1, label: 'a'}];
+        await app.updated();
 
         expect([...host.querySelectorAll('li')].map(li => li.textContent)).toEqual(['B:0', 'a:1']);
     });
