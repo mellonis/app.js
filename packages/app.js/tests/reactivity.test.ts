@@ -527,8 +527,8 @@ describe('batching (phase B)', () => {
         expect(host.querySelector('p')?.textContent).toBe('7');
     });
 
-    // Task-2 review note: #reseedChild calls child.#notify once per changed
-    // prop. A single combined expression (reading both props) proves the two
+    // #reseedChild notifies the child once per changed prop. A single
+    // combined expression (reading both props) proves the two
     // notifies land in the SAME child flush rather than one drain per prop —
     // a per-prop drain would still reach the right final text, but would
     // write it twice (one mutation record per drain) instead of once.
