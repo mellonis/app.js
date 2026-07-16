@@ -37,12 +37,16 @@ it('adds, toggles, and removes todos through the real built framework', async ()
         await pollFor(() => [...document.querySelectorAll('li')].some(li => li.textContent!.includes(title)));
     };
 
+    const footer = () => [...document.querySelectorAll('p')].find(p => p.textContent?.endsWith(' left'));
+
     await add('Learn keys');
     expect(document.querySelector('li span')?.textContent).toBe('Learn keys');
     expect(input.value).toBe('');
+    expect(footer()?.textContent).toBe('1 left');
 
     await add('Ship v1');
     expect(document.querySelectorAll('li')).toHaveLength(2);
+    expect(footer()?.textContent).toBe('2 left');
 
     const buttonIn = (index: number, label: string) =>
         [...document.querySelectorAll('li')[index].querySelectorAll('button')].find(b => b.textContent === label)!;
@@ -50,8 +54,10 @@ it('adds, toggles, and removes todos through the real built framework', async ()
     buttonIn(0, 'toggle').click();
     await pollFor(() => document.querySelector('li s') !== null);
     expect(document.querySelector('li s')?.textContent).toBe('Learn keys');
+    expect(footer()?.textContent).toBe('1 left');
 
     buttonIn(1, 'remove').click();
     await pollFor(() => document.querySelectorAll('li').length === 1);
     expect(document.querySelector('li s')?.textContent).toBe('Learn keys');
+    expect(footer()?.textContent).toBe('0 left');
 });
