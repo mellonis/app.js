@@ -1,6 +1,14 @@
 <!doctype html>
 <html lang="en">
 <head>
+    <script>
+        // Explicit window assignments: happy-dom runs classic scripts in a
+        // function scope, so bare declarations would not become globals and
+        // the stub would silently protect nothing
+        window.eval = function () { throw new Error('eval is disabled on this page'); };
+        globalThis.eval = window.eval;
+        window.Function = function () { throw new Error('Function is disabled on this page'); };
+    </script>
     <meta charset="utf-8">
     <title>Todo — app.js example</title>
     <link rel="stylesheet" href="/style.css">
