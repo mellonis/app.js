@@ -229,4 +229,114 @@ describe('dependency tracking (phase A: synchronous flush)', () => {
         expect(app.data.draft).toBe('A');
         expect(input.value).toBe('A');
     });
+
+    it('never ancestors: an identity-only reader sleeps through a nested write', async () => {
+        stubTemplates({root: '<template><p>${user |> fmt}</p><i>${user.name}</i></template>'});
+        const host = mountPoint();
+        let fmtCalls = 0;
+        const app = new Component({
+            element: host,
+            data: {user: {name: 'Ada'}},
+            methods: {fmt: ((value: object) => { fmtCalls += 1; return value ? 'yes' : 'no'; }) as never},
+        });
+        await app.ready;
+
+        expect(fmtCalls).toBe(1);
+
+        (app.data.user as {name: string}).name = 'Grace';
+
+        expect(host.querySelector('i')?.textContent).toBe('Grace');
+        expect(fmtCalls).toBe(1);
+    });
+
+    it('props-tier isolation: an unrelated parent write does not re-seed a child', async () => {
+        stubTemplates({
+            root: '<template><div data-component="echo" data-component-prop-text="msg"></div><p>${other}</p></template>',
+            echo: `<template><span>\${text}</span></template>
+<script>export default {mounted() { this.events.on('props', () => { window.__reseeds += 1; }); }};</script>`,
+        });
+        (window as unknown as {__reseeds: number}).__reseeds = 0;
+        const host = mountPoint();
+        const app = new Component({element: host, data: {msg: 'm', other: 'o'}});
+        await app.ready;
+        await vi.waitFor(() => {
+            expect(host.querySelector('span')?.textContent).toBe('m');
+        });
+
+        app.data.other = 'o2';
+
+        expect((window as unknown as {__reseeds: number}).__reseeds).toBe(0);
+        expect(host.querySelector('p')?.textContent).toBe('o2');
+    });
+});
+
+describe('lists under tracking (phase A)', () => {
+    it('an unrelated write reconciles nothing (key-expression spy)', async () => {
+        stubTemplates({root: '<template><ul><li data-for="items" data-key="keyOf($item)">${$item.label}</li></ul></template>'});
+        const host = mountPoint();
+        const keyCalls: number[] = [];
+        const keyOf = (item: {id: number}) => {
+            keyCalls.push(item.id);
+
+            return item.id;
+        };
+        const app = new Component({
+            element: host,
+            data: {items: [{id: 1, label: 'a'}], other: 0},
+            methods: {keyOf: keyOf as never},
+        });
+        await app.ready;
+
+        const callsAfterMount = keyCalls.length;
+
+        app.data.other = 1;
+
+        expect(keyCalls.length).toBe(callsAfterMount);
+        expect(host.querySelector('li')?.textContent).toBe('a');
+    });
+
+    it('the array self-assign hatch drives an in-place item-content update end to end', async () => {
+        stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id">${$item.label}</li></ul></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {items: [{id: 1, label: 'a'}]}});
+        await app.ready;
+
+        (app.data.items as Array<{label: string}>)[0].label = 'A2';
+        app.data.items = app.data.items;
+
+        expect(host.querySelector('li')?.textContent).toBe('A2');
+    });
+
+    it('a per-item prop binding re-seeds via the hatch (empty dependency set)', async () => {
+        stubTemplates({
+            root: '<template><ul><li data-for="items" data-key="$item.id"><div data-component="label" data-component-prop-item="$item"></div></li></ul></template>',
+            label: `<template><span>\${item.text}</span></template>
+<script>export default {};</script>`,
+        });
+        const host = mountPoint();
+        const app = new Component({element: host, data: {items: [{id: 1, text: 't1'}]}});
+        await app.ready;
+        await vi.waitFor(() => {
+            expect(host.querySelector('span')?.textContent).toBe('t1');
+        });
+
+        app.data.items = [{id: 1, text: 't2'}];
+
+        await vi.waitFor(() => {
+            expect(host.querySelector('span')?.textContent).toBe('t2');
+        });
+    });
+
+    it('a key expression reading outside the item does not re-key until its block reconciles', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({root: '<template><ul><li data-for="items" data-key="prefix + $item.id">${$item.label}</li></ul></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {items: [{id: 1, label: 'a'}], prefix: 'k'}});
+        await app.ready;
+
+        app.data.prefix = 'x';
+
+        expect(host.querySelectorAll('li')).toHaveLength(1);
+        expect(errorSpy).not.toHaveBeenCalled();
+    });
 });
