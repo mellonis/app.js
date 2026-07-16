@@ -232,7 +232,8 @@ export default class Component {
     #cleanup: (() => void) | undefined;
     readonly #refsBacking: Record<string, HTMLElement> = {};
 
-    #writeBackSource: HTMLElement | undefined;
+    readonly #writeBackSources = new Set<HTMLElement>();
+    #pendingFlush: {promise: Promise<void>; resolve: () => void} | null = null;
 
     readonly #abortController = new AbortController();
     #destroyed = false;
@@ -388,7 +389,23 @@ export default class Component {
         this.#propBindings.clear();
         this.#subscribersByPath.clear();
         this.#dirtyBindings.clear();
+        this.#writeBackSources.clear();
         Object.keys(this.#refsBacking).forEach(key => delete this.#refsBacking[key]);
+
+        // No deadlocked awaiters: a caller holding the promise from an
+        // `updated()` issued before destroy() still gets it resolved
+        const pending = this.#pendingFlush;
+
+        this.#pendingFlush = null;
+        pending?.resolve();
+    }
+
+    // Resolves once the currently pending flush's final drain iteration
+    // completes; resolves immediately when idle (nothing pending) or after
+    // destroy(). Covers this component's own drain only — a child's flush is
+    // its own later microtask (see the `settle` test helper for the chain).
+    updated(): Promise<void> {
+        return this.#pendingFlush?.promise ?? Promise.resolve();
     }
 
     #runMounted(): void {
@@ -471,10 +488,32 @@ export default class Component {
         }
     }
 
-    // Phase A: drain immediately, synchronously — the scheduler seam a later
-    // phase can replace with a microtask without touching anything above it
+    // Coalesces every write landing in the same microtask tick into one
+    // flush: a write arriving while a flush is already pending returns early
+    // instead of scheduling a second microtask — the drain's own dirty-set
+    // loop absorbs it. The promise is minted at schedule time (not at drain
+    // time) so a same-tick updated() call always returns the pending one.
     #scheduleFlush(): void {
-        this.#drain();
+        if (this.#pendingFlush) {
+            return;
+        }
+
+        let resolve!: () => void;
+        const promise = new Promise<void>(promiseResolve => {
+            resolve = promiseResolve;
+        });
+
+        this.#pendingFlush = {promise, resolve};
+        queueMicrotask(() => {
+            const pending = this.#pendingFlush;
+
+            this.#drain();
+            // Clear BEFORE resolving so a write inside updated().then mints
+            // a new flush instead of being folded into this one, which has
+            // already finished draining
+            this.#pendingFlush = null;
+            pending?.resolve();
+        });
     }
 
     // A write landing DURING a drain (e.g. a props handler writing this.data)
@@ -1365,18 +1404,23 @@ export default class Component {
             });
 
             element.addEventListener(element.tagName === 'SELECT' ? 'change' : 'input', () => {
-                this.#writeBackSource = element;
-
                 try {
                     if (compiled.source.trim() === compiled.rootIdentifier) {
                         (this.data as Record<string, unknown>)[compiled.rootIdentifier!] = (element as HTMLInputElement).value;
                     } else {
                         compiled.assign(this.#dataResolver, (element as HTMLInputElement).value);
                     }
+
+                    // Enroll only after a successful write, and only when it
+                    // actually scheduled a flush — a gate-suppressed write
+                    // (retyping the same value) touches nothing, and enrolling
+                    // it anyway would strand the entry: the NEXT programmatic
+                    // write would find it here and wrongly skip its rewrite
+                    if (this.#pendingFlush) {
+                        this.#writeBackSources.add(element);
+                    }
                 } catch (error) {
                     console.error(`Can't write back the "${compiled.source}" expression`, element, error);
-                } finally {
-                    this.#writeBackSource = undefined;
                 }
             }, {signal: this.#abortController.signal});
         });
@@ -1595,11 +1639,9 @@ export default class Component {
     }
 
     #updateOneValue(element: HTMLElement): void {
-        if (element === this.#writeBackSource) {
+        if (this.#writeBackSources.delete(element)) {
             // Consume on first visit: a later drain iteration (a derived
             // write to this input's own path) rewrites the input normally
-            this.#writeBackSource = undefined;
-
             return;
         }
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Component from '../src/app';
-import { mountPoint, resetTemplateCache, stubTemplates } from './helpers';
+import { mountPoint, resetTemplateCache, settle, stubTemplates } from './helpers';
 
 afterEach(() => {
     vi.unstubAllGlobals();
@@ -31,10 +31,14 @@ describe('dependency tracking (phase A: synchronous flush)', () => {
 
         app.data.other = 'y';
 
+        await app.updated();
+
         expect(host.querySelector('i')?.textContent).toBe('y');
         expect(calls).toEqual(['abc']);
 
         app.data.title = 'defg';
+
+        await app.updated();
 
         expect(host.querySelector('p')?.textContent).toBe('4');
         expect(calls).toEqual(['abc', 'defg']);
@@ -47,6 +51,8 @@ describe('dependency tracking (phase A: synchronous flush)', () => {
         await app.ready;
 
         (app.data.user as {address: {city: string}}).address.city = 'Turin';
+
+        await app.updated();
 
         expect(host.querySelector('p')?.textContent).toBe('Turin');
         expect(host.querySelector('i')?.textContent).toBe('Ada');
@@ -62,6 +68,8 @@ describe('dependency tracking (phase A: synchronous flush)', () => {
 
         user.address.city = 'Oslo';
         app.data.user = app.data.user;
+
+        await app.updated();
 
         expect(host.querySelector('p')?.textContent).toBe('Oslo');
     });
@@ -104,17 +112,25 @@ describe('dependency tracking (phase A: synchronous flush)', () => {
 
         app.data.b = 'B2';
 
+        await app.updated();
+
         expect(host.querySelector('p')?.textContent).toBe('A');
 
         app.data.flag = false;
+
+        await app.updated();
 
         expect(host.querySelector('p')?.textContent).toBe('B2');
 
         app.data.a = 'A2';
 
+        await app.updated();
+
         expect(host.querySelector('p')?.textContent).toBe('B2');
 
         app.data.b = 'B3';
+
+        await app.updated();
 
         expect(host.querySelector('p')?.textContent).toBe('B3');
     });
@@ -129,6 +145,8 @@ describe('dependency tracking (phase A: synchronous flush)', () => {
         expect(errorSpy).toHaveBeenCalled();
 
         app.data.broken = false;
+
+        await app.updated();
 
         expect(host.querySelector('p')?.textContent).toBe('ok');
     });
@@ -146,6 +164,8 @@ describe('dependency tracking (phase A: synchronous flush)', () => {
 
         app.data.live = 2;
         app.data.live = 3;
+
+        await app.updated();
 
         expect(host.querySelector('b')?.textContent).toBe('3');
         expect(errorSpy.mock.calls.length).toBe(errorsAtMount);
@@ -198,6 +218,8 @@ describe('dependency tracking (phase A: synchronous flush)', () => {
 
         app.data.n = 2;
 
+        await app.updated();
+
         expect(errorSpy.mock.calls.flat().join(' ')).toContain('loop');
     });
 
@@ -226,6 +248,8 @@ describe('dependency tracking (phase A: synchronous flush)', () => {
         input.value = 'a';
         input.dispatchEvent(new Event('input'));
 
+        await app.updated();
+
         expect(app.data.draft).toBe('A');
         expect(input.value).toBe('A');
     });
@@ -244,6 +268,8 @@ describe('dependency tracking (phase A: synchronous flush)', () => {
         expect(fmtCalls).toBe(1);
 
         (app.data.user as {name: string}).name = 'Grace';
+
+        await app.updated();
 
         expect(host.querySelector('i')?.textContent).toBe('Grace');
         expect(fmtCalls).toBe(1);
@@ -264,6 +290,8 @@ describe('dependency tracking (phase A: synchronous flush)', () => {
         });
 
         app.data.other = 'o2';
+
+        await app.updated();
 
         expect((window as unknown as {__reseeds: number}).__reseeds).toBe(0);
         expect(host.querySelector('p')?.textContent).toBe('o2');
@@ -304,6 +332,8 @@ describe('lists under tracking (phase A)', () => {
         (app.data.items as Array<{label: string}>)[0].label = 'A2';
         app.data.items = app.data.items;
 
+        await app.updated();
+
         expect(host.querySelector('li')?.textContent).toBe('A2');
     });
 
@@ -338,5 +368,199 @@ describe('lists under tracking (phase A)', () => {
 
         expect(host.querySelectorAll('li')).toHaveLength(1);
         expect(errorSpy).not.toHaveBeenCalled();
+    });
+});
+
+describe('batching (phase B)', () => {
+    it('two writes coalesce into one flush and one DOM write', async () => {
+        stubTemplates({root: '<template><p>${a}:${b}</p></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {a: 1, b: 2}});
+        await app.ready;
+
+        const paragraph = host.querySelector('p')!;
+        const observer = new MutationObserver(() => {});
+
+        observer.observe(paragraph, {characterData: true, subtree: true});
+
+        app.data.a = 10;
+        app.data.b = 20;
+
+        expect(paragraph.textContent).toBe('1:2');
+
+        await app.updated();
+
+        expect(paragraph.textContent).toBe('10:20');
+
+        const records = observer.takeRecords();
+
+        expect(records.length).toBeLessThanOrEqual(2);
+        observer.disconnect();
+    });
+
+    it('updated(): same-tick-after-write returns the pending promise; idle and destroyed resolve immediately', async () => {
+        stubTemplates({root: '<template><p>${n}</p></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {n: 1}});
+        await app.ready;
+
+        await app.updated();
+
+        app.data.n = 2;
+
+        const pending = app.updated();
+
+        expect(app.updated()).toBe(pending);
+
+        await pending;
+
+        expect(host.querySelector('p')?.textContent).toBe('2');
+
+        app.destroy();
+        app.data.n = 3;
+
+        await app.updated();
+
+        expect(host.querySelector('p')?.textContent).toBe('2');
+    });
+
+    it('destroy with a flush pending resolves the already-issued promise', async () => {
+        stubTemplates({root: '<template><p>${n}</p></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {n: 1}});
+        await app.ready;
+
+        app.data.n = 2;
+
+        const pending = app.updated();
+
+        app.destroy();
+
+        await pending;
+
+        expect(host.querySelector('p')?.textContent).toBe('1');
+    });
+
+    it('a write inside updated().then mints a new flush', async () => {
+        stubTemplates({root: '<template><p>${n}</p></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {n: 1}});
+        await app.ready;
+
+        app.data.n = 2;
+        await app.updated().then(() => {
+            app.data.n = 3;
+        });
+        await app.updated();
+
+        expect(host.querySelector('p')?.textContent).toBe('3');
+    });
+
+    it('write-back sources: the typed input is skipped once; a second input on the same path updates', async () => {
+        stubTemplates({root: '<template><input id="a" data-value="name"><input id="b" data-value="name"></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {name: 'x'}});
+        await app.ready;
+
+        const inputA = host.querySelector('#a') as HTMLInputElement;
+        const inputB = host.querySelector('#b') as HTMLInputElement;
+
+        inputA.value = 'typed';
+        inputA.dispatchEvent(new Event('input'));
+
+        await app.updated();
+
+        expect(inputA.value).toBe('typed');
+        expect(inputB.value).toBe('typed');
+        expect(app.data.name).toBe('typed');
+    });
+
+    it('a gate-suppressed write-back strands nothing: the next programmatic write still renders', async () => {
+        stubTemplates({root: '<template><input data-value="name"></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {name: 'same'}});
+        await app.ready;
+
+        const input = host.querySelector('input') as HTMLInputElement;
+
+        input.value = 'same';
+        input.dispatchEvent(new Event('input'));
+
+        await app.updated();
+
+        app.data.name = 'fresh';
+
+        await app.updated();
+
+        expect(input.value).toBe('fresh');
+    });
+
+    it('parent flush precedes the child flush; settle covers the chain', async () => {
+        stubTemplates({
+            root: '<template><div data-component="echo" data-component-prop-text="msg"></div></template>',
+            echo: `<template><span>\${text}</span></template>
+<script>export default {};</script>`,
+        });
+        const host = mountPoint();
+        const app = new Component({element: host, data: {msg: 'first'}});
+        await app.ready;
+        await vi.waitFor(() => {
+            expect(host.querySelector('span')?.textContent).toBe('first');
+        });
+
+        app.data.msg = 'second';
+
+        await app.updated();
+        // The parent's flush re-seeded the child; the child's own flush is a
+        // later microtask — settle covers the chain at any depth
+        await settle(app);
+
+        expect(host.querySelector('span')?.textContent).toBe('second');
+    });
+
+    it('mount renders synchronously: ready-then-assert needs no updated()', async () => {
+        stubTemplates({root: '<template><p>${n}</p></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {n: 7}});
+        await app.ready;
+
+        expect(host.querySelector('p')?.textContent).toBe('7');
+    });
+
+    // Task-2 review note: #reseedChild calls child.#notify once per changed
+    // prop. A single combined expression (reading both props) proves the two
+    // notifies land in the SAME child flush rather than one drain per prop —
+    // a per-prop drain would still reach the right final text, but would
+    // write it twice (one mutation record per drain) instead of once.
+    it('a multi-prop reseed coalesces into one child flush', async () => {
+        stubTemplates({
+            root: '<template><div data-component="echo" data-component-prop-x="a" data-component-prop-y="b"></div></template>',
+            echo: `<template><span>\${x + ':' + y}</span></template>
+<script>export default {};</script>`,
+        });
+        const host = mountPoint();
+        const app = new Component({element: host, data: {a: 1, b: 2}});
+        await app.ready;
+        await vi.waitFor(() => {
+            expect(host.querySelector('span')?.textContent).toBe('1:2');
+        });
+
+        const span = host.querySelector('span')!;
+        const observer = new MutationObserver(() => {});
+
+        observer.observe(span, {characterData: true, subtree: true});
+
+        app.data.a = 10;
+        app.data.b = 20;
+
+        await app.updated();
+        await settle(app);
+
+        expect(span.textContent).toBe('10:20');
+
+        const records = observer.takeRecords();
+
+        expect(records.length).toBeLessThanOrEqual(1);
+        observer.disconnect();
     });
 });

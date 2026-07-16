@@ -33,3 +33,8 @@ export function mountPoint(): HTMLElement {
 export function flush(): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, 0));
 }
+
+export async function settle(app: {updated(): Promise<void>}): Promise<void> {
+    await app.updated();
+    await flush();
+}
