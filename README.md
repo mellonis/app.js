@@ -13,6 +13,14 @@ A tiny reactive framework
 - Lists render with `data-for` (a bare array expression) plus a required `data-key`; item expressions see `$item`, `$index`, `$array`
 - Arrays update by replacement: `todos = [...todos, item]` — prefer copy-based expressions like `todos.filter(...)` / `[...todos].sort(...)`
 
+# Reactivity
+
+- A write to `data` schedules a render rather than running one immediately; every write that lands in the same microtask — one, or a dozen — coalesces into a single render.
+- `await app.updated()` resolves once that pending render has settled onto the DOM. Reach for it right after a write, in a test or inside a method, whenever you need to read the DOM back.
+- Writing the same value a key already holds is free: a primitive (or `null`) write that doesn't actually change anything renders nothing at all.
+- Arrays and plain objects still update by replacement, but mutating one in place and then reassigning the very same reference is a sanctioned escape hatch that does render: `data.todos = data.todos` after pushing into it in place, `data.user = data.user` after editing one of its keys, or reassigning partway down a chain (`data.user.address = data.user.address`) all work. Replacing a plain object with a genuinely different one is still a loud error — only self-assignment is allowed there.
+- Inside a method, the idiom for "write, then read the DOM back" is: write `this.data`, `await this.updated()`, then read `this.refs` — the DOM is guaranteed settled by the time that `await` returns.
+
 # Expressions
 
 - Every directive attribute and every `${...}` placeholder shares one small expression language: numbers, strings, booleans, `null`/`undefined`, array literals with spreads; property access via `.`, `[]`, and `?.`; function calls; arrow functions; ternaries and logical operators (`&&`, `||`, `??`); and `|>` pipes. There is no assignment and no statements — an expression only ever produces a value.

@@ -564,3 +564,34 @@ describe('batching (phase B)', () => {
         observer.disconnect();
     });
 });
+
+describe('the keystroke lesson', () => {
+    it('typing into an input evaluates only that path\'s subscribers', async () => {
+        stubTemplates({root: '<template><input data-value="draft"><p>${draft |> len}</p><ul><li data-for="items" data-key="keyOf($item)">${$item.label}</li></ul></template>'});
+        const host = mountPoint();
+        let keyEvaluations = 0;
+        let lenEvaluations = 0;
+        const app = new Component({
+            element: host,
+            data: {draft: '', items: [{id: 1, label: 'a'}, {id: 2, label: 'b'}]},
+            methods: {
+                len: ((value: string) => { lenEvaluations += 1; return value.length; }) as never,
+                keyOf: ((item: {id: number}) => { keyEvaluations += 1; return item.id; }) as never,
+            },
+        });
+        await app.ready;
+
+        const keysAtMount = keyEvaluations;
+        const lensAtMount = lenEvaluations;
+        const input = host.querySelector('input') as HTMLInputElement;
+
+        input.value = 'hello';
+        input.dispatchEvent(new Event('input'));
+
+        await app.updated();
+
+        expect(host.querySelector('p')?.textContent).toBe('5');
+        expect(lenEvaluations).toBe(lensAtMount + 1);
+        expect(keyEvaluations).toBe(keysAtMount);
+    });
+});
