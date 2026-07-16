@@ -11,22 +11,33 @@ interface ComponentOptions {
     methods?: Record<string, ComponentMethod>;
 }
 
+type TrackedBinding =
+    | {kind: 'show'; element: HTMLElement; dependencies: Set<string>}
+    | {kind: 'display'; element: HTMLElement; dependencies: Set<string>}
+    | {kind: 'value'; element: HTMLElement; dependencies: Set<string>}
+    | {kind: 'text'; node: Text; dependencies: Set<string>}
+    | {kind: 'block'; block: ForBlock; dependencies: Set<string>}
+    | {kind: 'props'; child: Component; dependencies: Set<string>};
+
 interface ShowIfEntry {
     anchor: Comment;
     expression: string;
     isHidden: boolean;
     scopeRef?: ForBlockScopeRef;
+    binding: TrackedBinding;
 }
 
 interface ValueEntry {
     expression: string;
     scopeRef?: ForBlockScopeRef;
+    binding: TrackedBinding;
 }
 
 interface DisplayIfEntry {
     expression: string;
     originalDisplay: string;
     scopeRef?: ForBlockScopeRef;
+    binding: TrackedBinding;
 }
 
 interface ForBlockScopeRef {
@@ -37,6 +48,7 @@ interface ForBlockScopeRef {
 interface TextNodeEntry {
     expression: string;
     scopeRef?: ForBlockScopeRef;
+    binding: TrackedBinding;
 }
 
 interface TextPart {
@@ -64,6 +76,7 @@ interface ForBlock {
     reportedErrorKinds: Set<string>;
     ancestorChain: string[];
     generation: number;
+    binding: TrackedBinding;
 }
 
 interface LoadComponentOptions {
@@ -82,6 +95,7 @@ interface PropBindingRecord {
     bindings: PropBinding[];
     scopeRef?: ForBlockScopeRef;
     reportedErrorKinds: Set<string>;
+    binding: TrackedBinding;
 }
 
 const EXPRESSION_GLOBALS = new Map<string, unknown>(Object.entries({Math, JSON, Number, String, Boolean, Array, isNaN, isFinite, parseInt, parseFloat}));
@@ -210,6 +224,11 @@ export default class Component {
     readonly #textNodeToDataMap = new Map<Text, TextNodeEntry>();
     readonly #forBlocks = new Set<ForBlock>();
 
+    readonly #subscribersByPath = new Map<string, Set<TrackedBinding>>();
+    #dirtyBindings = new Set<TrackedBinding>();
+    #activeFrame: Set<string> | null = null;
+    #drainDepth = 0;
+
     #cleanup: (() => void) | undefined;
     readonly #refsBacking: Record<string, HTMLElement> = {};
 
@@ -311,7 +330,11 @@ export default class Component {
         (internal ? internal.propNames : []).forEach(name => {
             Object.defineProperty(propsView, name, {
                 enumerable: true,
-                get: () => this.#propsBacking[name],
+                get: () => {
+                    this.#record(`props:${name}`);
+
+                    return this.#propsBacking[name];
+                },
             });
         });
         Object.preventExtensions(propsView);
@@ -363,6 +386,8 @@ export default class Component {
         this.#textNodeToDataMap.clear();
         this.#forBlocks.clear();
         this.#propBindings.clear();
+        this.#subscribersByPath.clear();
+        this.#dirtyBindings.clear();
         Object.keys(this.#refsBacking).forEach(key => delete this.#refsBacking[key]);
     }
 
@@ -380,6 +405,173 @@ export default class Component {
         } catch (error) {
             console.error(`The "${this.componentName}" component's mounted() hook threw`, error);
         }
+    }
+
+    // Pushes a fresh dependency frame, runs the evaluation, and always
+    // resubscribes from the frame collected so far — even on a throw. Keeping
+    // the OLD set on a throw would orphan any binding whose guard expression
+    // is what's failing (it would never re-arm once the guard flips back).
+    #trackEvaluation<T>(binding: TrackedBinding, evaluateFn: () => T): T {
+        const previousFrame = this.#activeFrame;
+        const frame = new Set<string>();
+
+        this.#activeFrame = frame;
+
+        try {
+            return evaluateFn();
+        } finally {
+            this.#activeFrame = previousFrame;
+            this.#resubscribe(binding, frame);
+        }
+    }
+
+    #resubscribe(binding: TrackedBinding, next: Set<string>): void {
+        binding.dependencies.forEach(path => {
+            if (!next.has(path)) {
+                this.#subscribersByPath.get(path)?.delete(binding);
+            }
+        });
+        next.forEach(path => {
+            if (!binding.dependencies.has(path)) {
+                let set = this.#subscribersByPath.get(path);
+
+                if (!set) {
+                    set = new Set();
+                    this.#subscribersByPath.set(path, set);
+                }
+
+                set.add(binding);
+            }
+        });
+        binding.dependencies = next;
+    }
+
+    #record(path: string): void {
+        this.#activeFrame?.add(path);
+    }
+
+    // A write to path notifies subscribers of the path itself plus every
+    // registered path prefixed "path." (descendants) — never ancestors, since
+    // identity above the written path did not change
+    #notify(path: string): void {
+        const direct = this.#subscribersByPath.get(path);
+
+        direct?.forEach(binding => this.#dirtyBindings.add(binding));
+
+        const prefix = `${path}.`;
+
+        this.#subscribersByPath.forEach((subscribers, registered) => {
+            if (registered.startsWith(prefix)) {
+                subscribers.forEach(binding => this.#dirtyBindings.add(binding));
+            }
+        });
+
+        if (this.#dirtyBindings.size) {
+            this.#scheduleFlush();
+        }
+    }
+
+    // Phase A: drain immediately, synchronously — the scheduler seam a later
+    // phase can replace with a microtask without touching anything above it
+    #scheduleFlush(): void {
+        this.#drain();
+    }
+
+    // A write landing DURING a drain (e.g. a props handler writing this.data)
+    // must not recurse into a nested drain — it lands in the fresh dirty set
+    // instead, and the while loop below picks it up on its next iteration
+    #drain(): void {
+        if (this.#destroyed || this.#drainDepth > 0) {
+            return;
+        }
+
+        this.#drainDepth = 1;
+
+        try {
+            let iterations = 0;
+
+            while (this.#dirtyBindings.size) {
+                iterations += 1;
+
+                if (iterations > 64) {
+                    console.error('Update feedback loop: a binding keeps dirtying itself (a formatter or handler writes what it reads) — rendering stopped for this batch', this.element);
+                    this.#dirtyBindings.clear();
+
+                    break;
+                }
+
+                const batch = this.#dirtyBindings;
+
+                this.#dirtyBindings = new Set();
+
+                // Lists first (structure before content), then visibility,
+                // values, text, then prop re-seeds — the existing pass order,
+                // now scoped to whichever bindings are actually dirty
+                batch.forEach(binding => {
+                    if (binding.kind === 'block') {
+                        this.#reconcileTrackedBlock(binding.block);
+                    }
+                });
+                batch.forEach(binding => {
+                    if (binding.kind === 'show') {
+                        this.#updateOneShowIf(binding.element);
+                    }
+                });
+                batch.forEach(binding => {
+                    if (binding.kind === 'display') {
+                        this.#updateOneDisplayIf(binding.element);
+                    }
+                });
+                batch.forEach(binding => {
+                    if (binding.kind === 'value') {
+                        this.#updateOneValue(binding.element);
+                    }
+                });
+                batch.forEach(binding => {
+                    if (binding.kind === 'text') {
+                        this.#updateOneText(binding.node);
+                    }
+                });
+                batch.forEach(binding => {
+                    if (binding.kind === 'props') {
+                        this.#reseedChild(binding.child);
+                    }
+                });
+            }
+        } finally {
+            this.#drainDepth = 0;
+        }
+    }
+
+    // Every binding kind's own map still holds the live entry for its
+    // element/node — this is the one place that reaches across all of them
+    #bindingFor(boundElement: HTMLElement | Text): TrackedBinding | undefined {
+        if (boundElement instanceof Text) {
+            return this.#textNodeToDataMap.get(boundElement)?.binding;
+        }
+
+        return this.#showIfElementToDataMap.get(boundElement)?.binding
+            ?? this.#displayIfElementToDataMap.get(boundElement)?.binding
+            ?? this.#valueElementToDataMap.get(boundElement)?.binding;
+    }
+
+    // Unsubscribes an evicted binding from every path it was reading and
+    // drops it from the current dirty set, so a dead binding never lingers
+    // in the graph or gets evaluated against an element that is gone
+    #evictBinding(binding: TrackedBinding): void {
+        this.#resubscribe(binding, new Set());
+        this.#dirtyBindings.delete(binding);
+    }
+
+    // The initial mount renders synchronously: mark every wired binding
+    // dirty, then drain once — that first drain IS the collection pass
+    #markAllBindingsDirty(): void {
+        this.#forBlocks.forEach(block => this.#dirtyBindings.add(block.binding));
+        this.#showIfElementToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
+        this.#displayIfElementToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
+        this.#valueElementToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
+        this.#textNodeToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
+        this.#propBindings.forEach(record => this.#dirtyBindings.add(record.binding));
     }
 
     #wireTextInterpolations(root: Node, scopeRef?: ForBlockScopeRef): Text[] {
@@ -424,7 +616,11 @@ export default class Component {
                 const node = document.createTextNode(part.isExpression ? '' : part.value);
 
                 if (part.isExpression && this.#compileAtWiring(part.value, textNode)) {
-                    this.#textNodeToDataMap.set(node, {expression: part.value, scopeRef});
+                    this.#textNodeToDataMap.set(node, {
+                        expression: part.value,
+                        scopeRef,
+                        binding: {kind: 'text', node, dependencies: new Set()},
+                    });
                     boundTextNodes.push(node);
                 }
 
@@ -437,40 +633,57 @@ export default class Component {
         return boundTextNodes;
     }
 
-    #createGhost(data: Record<string, unknown>): Record<string, unknown> {
+    #createGhost(data: Record<string, unknown>, prefix = ''): Record<string, unknown> {
         const ghost: Record<string, unknown> = {};
         const app = this;
 
         Object.keys(data).forEach(key => {
+            const path = prefix ? `${prefix}.${key}` : key;
+
             if (data[key] !== null && typeof data[key] === 'object' && !Array.isArray(data[key])) {
-                const nestedGhost = this.#createGhost(data[key] as Record<string, unknown>);
+                const nestedGhost = this.#createGhost(data[key] as Record<string, unknown>, path);
 
                 Object.defineProperty(ghost, key, {
                     enumerable: true,
                     get() {
+                        app.#record(path);
+
                         return nestedGhost;
                     },
                     // Objects stay replace-only, but the array idiom's escape
                     // hatch works here too: self-assignment (data.user =
-                    // data.user) triggers a pass after in-place mutation
+                    // data.user) triggers a pass after in-place mutation —
+                    // and, being an equal object reference, always notifies
                     set(newValue: unknown) {
                         if (newValue !== nestedGhost) {
                             throw new TypeError(`The "${key}" object cannot be replaced wholesale — mutate its keys, then assign it to itself to update`);
                         }
 
-                        app.#runUpdatePass();
+                        app.#notify(path);
                     },
                 });
             } else {
                 Object.defineProperty(ghost, key, {
                     enumerable: true,
                     get() {
+                        app.#record(path);
+
                         return data[key];
                     },
                     set(newValue: unknown) {
-                        data[key] = newValue;
+                        const currentValue = data[key];
+                        // Equal primitives (and double-null) are a no-op;
+                        // equal array/object/function references still go
+                        // through — they are the mutate-then-self-assign hatch
+                        const suppress = Object.is(currentValue, newValue)
+                            && (newValue === null || (typeof newValue !== 'object' && typeof newValue !== 'function'));
 
-                        app.#runUpdatePass();
+                        if (suppress) {
+                            return;
+                        }
+
+                        data[key] = newValue;
+                        app.#notify(path);
                     },
                 });
             }
@@ -577,18 +790,21 @@ export default class Component {
         element.removeAttribute('data-for');
         element.removeAttribute('data-key');
 
-        this.#forBlocks.add({
+        const block = {
             anchorStart,
             anchorEnd,
             templateElement: element,
             listExpression,
             keyExpression,
-            array: [],
-            entries: new Map(),
-            reportedErrorKinds: new Set(),
+            array: [] as unknown[],
+            entries: new Map<string, ForBlockEntry>(),
+            reportedErrorKinds: new Set<string>(),
             ancestorChain: parentComponentNameList,
             generation: 0,
-        });
+        } as ForBlock;
+
+        block.binding = {kind: 'block', block, dependencies: new Set()};
+        this.#forBlocks.add(block);
     }
 
     #wireItemElement(root: HTMLElement, block: ForBlock, key: string): (HTMLElement | Text)[] {
@@ -629,6 +845,7 @@ export default class Component {
                 expression: element.dataset['showIf']!,
                 isHidden: false,
                 scopeRef,
+                binding: {kind: 'show', element, dependencies: new Set()},
             });
             boundElements.push(element);
         });
@@ -648,6 +865,7 @@ export default class Component {
                 expression: element.dataset['displayIf']!,
                 originalDisplay: element.style.display,
                 scopeRef,
+                binding: {kind: 'display', element, dependencies: new Set()},
             });
             boundElements.push(element);
         });
@@ -694,7 +912,11 @@ export default class Component {
                 }
 
                 const itemScope = this.#scopeForBinding(scopeRef);
-                const {seeds, names, bindings, failedSeedKinds} = this.#collectProps(element, itemScope);
+                // The child doesn't exist yet — collection needs a binding
+                // object to record into, so it's built with a placeholder and
+                // patched with the real child right after instantiation
+                const binding: Extract<TrackedBinding, {kind: 'props'}> = {kind: 'props', child: undefined as unknown as Component, dependencies: new Set()};
+                const {seeds, names, bindings, failedSeedKinds} = this.#trackEvaluation(binding, () => this.#collectProps(element, itemScope));
                 const child = Component.#instantiate({
                     element,
                     componentName,
@@ -709,10 +931,12 @@ export default class Component {
                 entryAtWiring!.child = child;
 
                 if (bindings.length) {
+                    binding.child = child;
+
                     // failedSeedKinds carries the seed errors already logged in
                     // #collectProps — a fresh Set here would double-log a
                     // persisting seed error on the first update pass
-                    this.#propBindings.set(child, {bindings, scopeRef, reportedErrorKinds: failedSeedKinds});
+                    this.#propBindings.set(child, {bindings, scopeRef, reportedErrorKinds: failedSeedKinds, binding});
                 }
             }).catch(error => {
                 console.error(`Can't load the "${componentName}" component`, element, error);
@@ -750,37 +974,60 @@ export default class Component {
         console.error(...details);
     }
 
-    #updateLists(): void {
-        this.#forBlocks.forEach(block => {
-            const errorKindsThisPass = new Set<string>();
-            let items: unknown;
-            let listFailed = false;
+    // The single per-block entry point the drain calls for a dirty list
+    // binding: evaluate the list expression inside its tracking frame (this
+    // IS the block's own dependency collection), reconcile, then mark every
+    // surviving entry's own bindings dirty — item bindings read $-scope
+    // values that are never path-tracked, so a reconcile is their only
+    // wake-up signal, and the array self-assign hatch means "same reference,
+    // mutated contents", which only this unconditional marking can catch
+    #reconcileTrackedBlock(block: ForBlock): void {
+        const errorKindsThisPass = new Set<string>();
+        let items: unknown;
+        let listFailed = false;
 
-            try {
-                items = this.#evaluate({expression: block.listExpression});
-            } catch (error) {
-                this.#reportBlockError(block, errorKindsThisPass, 'list-expression', `Can't evaluate the "${block.listExpression}" expression`, block.anchorStart, error);
-                listFailed = true;
+        try {
+            items = this.#trackEvaluation(block.binding, () => this.#evaluate({expression: block.listExpression}));
+        } catch (error) {
+            this.#reportBlockError(block, errorKindsThisPass, 'list-expression', `Can't evaluate the "${block.listExpression}" expression`, block.anchorStart, error);
+            listFailed = true;
+        }
+
+        if (!listFailed) {
+            if (!Array.isArray(items)) {
+                this.#reportBlockError(block, errorKindsThisPass, 'non-array', `The "${block.listExpression}" expression did not produce an array`, block.anchorStart, items);
+                items = [];
             }
 
-            if (!listFailed) {
-                if (!Array.isArray(items)) {
-                    this.#reportBlockError(block, errorKindsThisPass, 'non-array', `The "${block.listExpression}" expression did not produce an array`, block.anchorStart, items);
-                    items = [];
-                }
+            this.#reconcileBlockWith(block, items as unknown[], errorKindsThisPass);
 
-                this.#reconcileBlock(block, items as unknown[], errorKindsThisPass);
-            }
+            block.entries.forEach(entry => {
+                entry.boundElements.forEach(boundElement => {
+                    const binding = this.#bindingFor(boundElement);
 
-            block.reportedErrorKinds.forEach(kind => {
-                if (!errorKindsThisPass.has(kind)) {
-                    block.reportedErrorKinds.delete(kind);
+                    if (binding) {
+                        this.#dirtyBindings.add(binding);
+                    }
+                });
+
+                if (entry.child) {
+                    const record = this.#propBindings.get(entry.child);
+
+                    if (record) {
+                        this.#dirtyBindings.add(record.binding);
+                    }
                 }
             });
+        }
+
+        block.reportedErrorKinds.forEach(kind => {
+            if (!errorKindsThisPass.has(kind)) {
+                block.reportedErrorKinds.delete(kind);
+            }
         });
     }
 
-    #reconcileBlock(block: ForBlock, items: unknown[], errorKindsThisPass: Set<string>): void {
+    #reconcileBlockWith(block: ForBlock, items: unknown[], errorKindsThisPass: Set<string>): void {
         // A newer (re-entrant) pass bumps the generation; a pass that detects
         // it was superseded abandons the block
         const generation = ++block.generation;
@@ -842,20 +1089,31 @@ export default class Component {
             }
 
             entry.boundElements.forEach(boundElement => {
+                const binding = this.#bindingFor(boundElement);
+
                 if (boundElement instanceof Text) {
                     this.#textNodeToDataMap.delete(boundElement);
-
-                    return;
+                } else {
+                    this.#valueElementToDataMap.delete(boundElement);
+                    this.#showIfElementToDataMap.delete(boundElement);
+                    this.#displayIfElementToDataMap.delete(boundElement);
                 }
 
-                this.#valueElementToDataMap.delete(boundElement);
-                this.#showIfElementToDataMap.delete(boundElement);
-                this.#displayIfElementToDataMap.delete(boundElement);
+                if (binding) {
+                    this.#evictBinding(binding);
+                }
             });
 
             if (entry.child) {
+                const propRecord = this.#propBindings.get(entry.child);
+
                 this.#propBindings.delete(entry.child);
                 this.#childComponents.delete(entry.child);
+
+                if (propRecord) {
+                    this.#evictBinding(propRecord.binding);
+                }
+
                 // destroy() before entries.delete: a cleanup's final emit still
                 // resolves (event, item, index) through the live entry
                 entry.child.destroy();
@@ -1042,6 +1300,7 @@ export default class Component {
                 anchor: document.createComment(' an anchor comment '),
                 expression: element.dataset['showIf']!,
                 isHidden: false,
+                binding: {kind: 'show', element, dependencies: new Set()},
             });
         });
 
@@ -1053,6 +1312,7 @@ export default class Component {
             this.#displayIfElementToDataMap.set(element, {
                 expression: element.dataset['displayIf']!,
                 originalDisplay: element.style.display,
+                binding: {kind: 'display', element, dependencies: new Set()},
             });
         });
 
@@ -1101,6 +1361,7 @@ export default class Component {
 
             this.#valueElementToDataMap.set(element, {
                 expression: element.dataset['value']!,
+                binding: {kind: 'value', element, dependencies: new Set()},
             });
 
             element.addEventListener(element.tagName === 'SELECT' ? 'change' : 'input', () => {
@@ -1148,7 +1409,11 @@ export default class Component {
         // append the fragment before rejecting ready with it
         return Promise.allSettled(subComponentPromiseList)
             .then(results => {
-                this.#runUpdatePass();
+                // The initial mount renders synchronously: mark every wired
+                // binding dirty, then drain once — that first drain IS the
+                // collection pass for every binding's dependency set
+                this.#markAllBindingsDirty();
+                this.#drain();
 
                 return {
                     documentFragment,
@@ -1229,7 +1494,8 @@ export default class Component {
                 return this.#loadComponent({componentWrapper: element, componentName, parentComponentNameList});
             }
 
-            const {seeds, names, bindings, failedSeedKinds} = this.#collectProps(element);
+            const binding: Extract<TrackedBinding, {kind: 'props'}> = {kind: 'props', child: undefined as unknown as Component, dependencies: new Set()};
+            const {seeds, names, bindings, failedSeedKinds} = this.#trackEvaluation(binding, () => this.#collectProps(element));
             const child = Component.#instantiate({
                 element,
                 componentName,
@@ -1241,7 +1507,8 @@ export default class Component {
             });
 
             if (bindings.length) {
-                this.#propBindings.set(child, {bindings, reportedErrorKinds: failedSeedKinds});
+                binding.child = child;
+                this.#propBindings.set(child, {bindings, reportedErrorKinds: failedSeedKinds, binding});
             }
 
             return child.ready;
@@ -1257,34 +1524,28 @@ export default class Component {
         }
     }
 
-    #runUpdatePass(): void {
-        if (this.#destroyed) {
+    // The per-child body of what used to be one loop over every prop
+    // binding — batching semantics are unchanged: Object.is gates decide
+    // which props actually changed, ONE combined "props" event carries all
+    // of them, and the child's own bindings wake through #notify afterward,
+    // so a props-handler write lands before the child's own bindings drain
+    #reseedChild(child: Component): void {
+        if (child.#destroyed) {
             return;
         }
 
-        // Consumed at entry so a nested (re-entrant) pass sees nothing and
-        // re-writes its own bound element normally
-        const sourceElement = this.#writeBackSource;
+        const record = this.#propBindings.get(child);
 
-        this.#writeBackSource = undefined;
+        if (!record) {
+            return;
+        }
 
-        this.#updateLists();
-        this.#updateVisibility();
-        this.#updateValues(sourceElement);
-        this.#updateProps();
-    }
+        const errorKindsThisPass = new Set<string>();
+        const scope = this.#scopeForBinding(record.scopeRef);
+        const changes: Record<string, {value: unknown; previous: unknown}> = {};
+        let changed = false;
 
-    #updateProps(): void {
-        this.#propBindings.forEach((record, child) => {
-            if (child.#destroyed) {
-                return;
-            }
-
-            const errorKindsThisPass = new Set<string>();
-            const scope = this.#scopeForBinding(record.scopeRef);
-            const changes: Record<string, {value: unknown; previous: unknown}> = {};
-            let changed = false;
-
+        this.#trackEvaluation(record.binding, () => {
             record.bindings.forEach(binding => {
                 let value: unknown;
 
@@ -1310,93 +1571,115 @@ export default class Component {
                     changed = true;
                 }
             });
+        });
 
-            record.reportedErrorKinds.forEach(kind => {
-                if (!errorKindsThisPass.has(kind)) {
-                    record.reportedErrorKinds.delete(kind);
-                }
-            });
-
-            if (changed) {
-                // Browsers report a listener exception without breaking the
-                // dispatch; non-browser EventTargets may propagate it — either
-                // way the batch contract (ONE event, then ONE child pass, and
-                // phase 4 continuing for the remaining children) must survive
-                try {
-                    child.#eventTarget.dispatchEvent(new CustomEvent(RESERVED_EVENT_NAME, {detail: changes}));
-                } catch (error) {
-                    console.error(`A "${RESERVED_EVENT_NAME}" event handler threw`, child.element, error);
-                }
-
-                child.#runUpdatePass();
+        record.reportedErrorKinds.forEach(kind => {
+            if (!errorKindsThisPass.has(kind)) {
+                record.reportedErrorKinds.delete(kind);
             }
         });
+
+        if (changed) {
+            // Browsers report a listener exception without breaking the
+            // dispatch; non-browser EventTargets may propagate it — either
+            // way the batch contract (ONE event, then the child's own render)
+            // must survive
+            try {
+                child.#eventTarget.dispatchEvent(new CustomEvent(RESERVED_EVENT_NAME, {detail: changes}));
+            } catch (error) {
+                console.error(`A "${RESERVED_EVENT_NAME}" event handler threw`, child.element, error);
+            }
+
+            Object.keys(changes).forEach(propName => child.#notify(`props:${propName}`));
+        }
     }
 
-    #updateValues(sourceElement: HTMLElement | undefined = undefined): void {
-        this.#valueElementToDataMap.forEach((entry, valueElement) => {
-            if (valueElement !== sourceElement) {
-                let newValue: unknown;
+    #updateOneValue(element: HTMLElement): void {
+        if (element === this.#writeBackSource) {
+            return;
+        }
 
-                try {
-                    newValue = this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)});
-                } catch (error) {
-                    console.error(`Can't evaluate the "${entry.expression}" expression`, valueElement, error);
+        const entry = this.#valueElementToDataMap.get(element);
 
-                    return;
-                }
+        if (!entry) {
+            return;
+        }
 
-                (valueElement as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value = newValue as string;
-            }
-        });
+        let newValue: unknown;
 
-        this.#textNodeToDataMap.forEach((entry, textNode) => {
-            let newValue: unknown;
+        try {
+            newValue = this.#trackEvaluation(entry.binding, () => this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)}));
+        } catch (error) {
+            console.error(`Can't evaluate the "${entry.expression}" expression`, element, error);
 
-            try {
-                newValue = this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)});
-            } catch (error) {
-                console.error(`Can't evaluate the "${entry.expression}" expression`, textNode, error);
+            return;
+        }
 
-                return;
-            }
-
-            textNode.textContent = newValue === null || newValue === undefined ? '' : String(newValue);
-        });
+        (element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value = newValue as string;
     }
 
-    #updateVisibility(): void {
-        this.#showIfElementToDataMap.forEach((entry, element) => {
-            let shouldBeVisible: boolean;
+    #updateOneText(node: Text): void {
+        const entry = this.#textNodeToDataMap.get(node);
 
-            try {
-                shouldBeVisible = !!this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)});
-            } catch (error) {
-                console.error(`Can't evaluate the "${entry.expression}" expression`, element, error);
+        if (!entry) {
+            return;
+        }
 
-                return;
-            }
+        let newValue: unknown;
 
-            if (shouldBeVisible) {
-                this.#showElement(element);
-            } else {
-                this.#hideElement(element);
-            }
-        });
+        try {
+            newValue = this.#trackEvaluation(entry.binding, () => this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)}));
+        } catch (error) {
+            console.error(`Can't evaluate the "${entry.expression}" expression`, node, error);
 
-        this.#displayIfElementToDataMap.forEach((entry, element) => {
-            let shouldBeVisible: boolean;
+            return;
+        }
 
-            try {
-                shouldBeVisible = !!this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)});
-            } catch (error) {
-                console.error(`Can't evaluate the "${entry.expression}" expression`, element, error);
+        node.textContent = newValue === null || newValue === undefined ? '' : String(newValue);
+    }
 
-                return;
-            }
+    #updateOneShowIf(element: HTMLElement): void {
+        const entry = this.#showIfElementToDataMap.get(element);
 
-            element.style.display = shouldBeVisible ? entry.originalDisplay : 'none';
-        });
+        if (!entry) {
+            return;
+        }
+
+        let shouldBeVisible: boolean;
+
+        try {
+            shouldBeVisible = !!this.#trackEvaluation(entry.binding, () => this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)}));
+        } catch (error) {
+            console.error(`Can't evaluate the "${entry.expression}" expression`, element, error);
+
+            return;
+        }
+
+        if (shouldBeVisible) {
+            this.#showElement(element);
+        } else {
+            this.#hideElement(element);
+        }
+    }
+
+    #updateOneDisplayIf(element: HTMLElement): void {
+        const entry = this.#displayIfElementToDataMap.get(element);
+
+        if (!entry) {
+            return;
+        }
+
+        let shouldBeVisible: boolean;
+
+        try {
+            shouldBeVisible = !!this.#trackEvaluation(entry.binding, () => this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)}));
+        } catch (error) {
+            console.error(`Can't evaluate the "${entry.expression}" expression`, element, error);
+
+            return;
+        }
+
+        element.style.display = shouldBeVisible ? entry.originalDisplay : 'none';
     }
 
     static clearTemplateCache(): void {
