@@ -97,6 +97,16 @@ interface LoadComponentOptions {
     parentComponentNameList?: string[];
 }
 
+// Recorded at the receiving component's own wiring time, before any
+// distribution — the anchor is the live position marker the projected (or
+// fallback) content eventually replaces, wherever it currently lives; the
+// fallback fragment is held unwired until distribution decides whether it is
+// ever needed.
+interface SlotRecordEntry {
+    anchor: Comment;
+    fallbackFragment: DocumentFragment;
+}
+
 interface PropBinding {
     propName: string;
     expression: string;
@@ -211,6 +221,42 @@ function collectTextNodes(node: Node, into: Text[] = []): Text[] {
     return into;
 }
 
+// Whitespace-only text and comments are ignorable everywhere content is
+// judged present or absent — a formatted-but-empty wrapper is not content.
+// Shared by the SFC-file sibling check and every slot-distribution decision
+// (bucket emptiness, the missing-default-slot error, the slotless-template
+// error) so the two notions of "meaningful" can never drift apart.
+function isMeaningfulNode(node: Node): boolean {
+    if (node.nodeType === Node.COMMENT_NODE) {
+        return false;
+    }
+
+    if (node.nodeType === Node.TEXT_NODE) {
+        return !!(node.textContent ?? '').trim();
+    }
+
+    return true;
+}
+
+// Every ${} interpolation's bound Text node, across every component instance
+// — a bound node starts life empty (its first drain hasn't run yet) and
+// binding bookkeeping is otherwise private to whichever instance owns it, so
+// a cross-instance "was content provided here" check (slot distribution
+// reading a node the PARENT wired) has nothing else to consult
+const trackedInterpolationTextNodes = new WeakSet<Text>();
+
+// A bound ${} interpolation starts life as an EMPTY text node — its first
+// drain hasn't run yet at distribution time — so a blank-content check would
+// misread live projected text as absent. Presence of the binding is what
+// "content was provided" means, not its value at this snapshot in time.
+function isContentNode(node: Node): boolean {
+    if (node instanceof Text && trackedInterpolationTextNodes.has(node)) {
+        return true;
+    }
+
+    return isMeaningfulNode(node);
+}
+
 const formControlTagNames = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 const DATA_VALUE_FORM_ONLY_MESSAGE = 'data-value only works on form controls (input, textarea, select) — use ${expression} interpolation to display text';
 const disableableTagNames = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON']);
@@ -219,6 +265,16 @@ const DATA_DISABLED_IF_MESSAGE = 'data-disabled-if only works on elements that h
 // so case-sensitive event types are inexpressible here (irrelevant for
 // element-level DOM events, which are all-lowercase)
 const DATA_ON_ATTRIBUTE_NAME_PATTERN = /^data-on-(.+)$/;
+
+const DEFAULT_SLOT_NAME = '';
+const SLOT_FORBIDDEN_DIRECTIVE_ATTRIBUTES = new Set(['data-show-if', 'data-display-if', 'data-disabled-if', 'data-value', 'data-ref', 'data-component', 'data-for', 'data-key']);
+
+// A <slot> is a mount-time marker, never a live directive host — wrap the
+// region in a container element instead of decorating the slot itself
+function slotHasForbiddenDirective(element: HTMLElement): boolean {
+    return Array.from(element.attributes).some(attribute =>
+        SLOT_FORBIDDEN_DIRECTIVE_ATTRIBUTES.has(attribute.name) || DATA_ON_ATTRIBUTE_NAME_PATTERN.test(attribute.name));
+}
 
 export default class Component {
     declare readonly componentName: string;
@@ -694,6 +750,7 @@ export default class Component {
                         scopeRef,
                         binding: {kind: 'text', node, dependencies: new Set()},
                     });
+                    trackedInterpolationTextNodes.add(node);
                     boundTextNodes.push(node);
                 }
 
@@ -1004,6 +1061,18 @@ export default class Component {
             }
 
             const componentName = element.dataset['component']!;
+
+            // Per-item content projection is not implemented — whether the
+            // target even has a <slot> is async knowledge, so this fires
+            // unconditionally rather than splitting on slot-bearingness
+            if (Array.from(element.childNodes).some(isContentNode)) {
+                console.error(`Wrapper content on the "${componentName}" data-component inside a data-for item is not supported (per-item content projection is not implemented) — remove the markup`, element);
+
+                while (element.firstChild) {
+                    element.removeChild(element.firstChild);
+                }
+            }
+
             const entryAtWiring = block.entries.get(key);
 
             Component.#loadDefinition(componentName).then(definition => {
@@ -1131,6 +1200,15 @@ export default class Component {
     }
 
     #reconcileBlockWith(block: ForBlock, items: unknown[], errorKindsThisPass: Set<string>): void {
+        // A block whose anchors never made it into the live tree (e.g. a
+        // data-for combo-banned alongside data-slot, whose stripped-of-
+        // routing content had nowhere to land during distribution) has
+        // nothing to reconcile against — treat it as abandoned rather than
+        // reach for a parent that does not exist
+        if (!block.anchorEnd.parentNode) {
+            return;
+        }
+
         // A newer (re-entrant) pass bumps the generation; a pass that detects
         // it was superseded abandons the block
         const generation = ++block.generation;
@@ -1372,40 +1450,55 @@ export default class Component {
             return Promise.reject('A component cycle was detected during loading');
         }
 
+        // True for a component's own top-level mount (the true root, or an
+        // SFC child's own instance) — false for a template-only include's
+        // recursive call, which reuses this same instance to wire someone
+        // else's borrowed markup and never receives projected content
+        const isOwnMount = componentWrapper === this.element;
+
         parentComponentNameList = [componentName, ...parentComponentNameList];
 
         return Component.loadTemplate(componentName)
-            .then(template => this.#renderTemplate({template, parentComponentNameList}))
-            .then(({documentFragment, childFailure}) => {
+            .then(template => this.#renderTemplate({template, parentComponentNameList, isOwnMount}))
+            .then(({documentFragment, childFailure, slotRecords}) => {
                 if (this.#destroyed) {
                     throw new Error(COMPONENT_DESTROYED_MESSAGE);
                 }
 
-                // childNodes, not children: anchor comments for initially
-                // hidden top-level elements must move into the live DOM too
-                while (documentFragment.childNodes.length) {
-                    componentWrapper.appendChild(documentFragment.childNodes[0]);
-                }
+                return this.#distributeContent({componentWrapper, slotRecords, parentComponentNameList, isOwnMount})
+                    .then(distributionFailure => {
+                        if (this.#destroyed) {
+                            throw new Error(COMPONENT_DESTROYED_MESSAGE);
+                        }
 
-                // The initial mount renders synchronously: mark every wired
-                // binding dirty, then drain once — that first drain IS the
-                // collection pass for every binding's dependency set
-                this.#markAllBindingsDirty();
-                this.#drain();
+                        // childNodes, not children: anchor comments for initially
+                        // hidden top-level elements must move into the live DOM too
+                        while (documentFragment.childNodes.length) {
+                            componentWrapper.appendChild(documentFragment.childNodes[0]);
+                        }
 
-                if (childFailure) {
-                    // Mount what succeeded first, then surface the first child
-                    // failure through ready — a broken child is loud, but its
-                    // siblings still render (the framework's loud-but-non-fatal
-                    // posture)
-                    return Promise.reject(childFailure.reason);
-                }
+                        // The initial mount renders synchronously: mark every wired
+                        // binding dirty, then drain once — that first drain IS the
+                        // collection pass for every binding's dependency set
+                        this.#markAllBindingsDirty();
+                        this.#drain();
 
-                return undefined;
+                        const firstFailure = childFailure ?? distributionFailure;
+
+                        if (firstFailure) {
+                            // Mount what succeeded first, then surface the first
+                            // child failure through ready — a broken child is
+                            // loud, but its siblings still render (the
+                            // framework's loud-but-non-fatal posture)
+                            return Promise.reject(firstFailure.reason);
+                        }
+
+                        return undefined;
+                    });
             });
     }
 
-    #renderTemplate({template, parentComponentNameList}: {template: string; parentComponentNameList: string[]}): Promise<{documentFragment: DocumentFragment; childFailure: PromiseRejectedResult | undefined}> {
+    #renderTemplate({template, parentComponentNameList, isOwnMount}: {template: string; parentComponentNameList: string[]; isOwnMount: boolean}): Promise<{documentFragment: DocumentFragment; childFailure: PromiseRejectedResult | undefined; slotRecords: Map<string, SlotRecordEntry>}> {
         const divElement = document.createElement('div');
 
         divElement.innerHTML = template;
@@ -1417,9 +1510,169 @@ export default class Component {
         }
 
         const documentFragment = templateElement.content;
+        // Template-only includes reuse the including component's own `this`
+        // for a borrowed template — a <slot> there stays plain, inert markup
+        // (out of scope), so the scan only ever runs for a genuine mount
+        const slotRecords = isOwnMount ? this.#scanSlots(documentFragment) : new Map<string, SlotRecordEntry>();
+
+        if (slotRecords.size && !this.#parentEventTarget) {
+            slotRecords.forEach((entry, name) => {
+                console.error(`<slot${name ? ` name="${name}"` : ''}> has no effect in the "${this.componentName}" root component's template — there is no parent to project content from`, entry.anchor);
+            });
+        }
 
         return this.#wireFragment(documentFragment, parentComponentNameList)
-            .then(childFailure => ({documentFragment, childFailure}));
+            .then(childFailure => ({documentFragment, childFailure, slotRecords}));
+    }
+
+    // The slot scan is the first sweep of a component's own template — before
+    // its own data-for extraction, so a <slot> nested in a block is still
+    // reachable via closest(). Each surviving <slot> becomes a position
+    // anchor plus a held, unwired fallback fragment; nothing here decides
+    // fill-or-fallback — that is distribution's job, later, once the
+    // receiving wrapper's actual content is known.
+    #scanSlots(fragment: DocumentFragment): Map<string, SlotRecordEntry> {
+        const slotRecords = new Map<string, SlotRecordEntry>();
+
+        fragment.querySelectorAll<HTMLElement>('slot').forEach(element => {
+            if (!fragment.contains(element)) {
+                // Already consumed as another slot's fallback content
+                return;
+            }
+
+            if (element.closest('[data-for]')) {
+                console.error(`A <slot> inside a data-for block is not supported in the "${this.componentName}" component's template`, element);
+                element.remove();
+
+                return;
+            }
+
+            if (slotHasForbiddenDirective(element)) {
+                console.error(`Directives are not supported on a <slot> element itself — wrap the slot region instead, in the "${this.componentName}" component's template`, element);
+                element.remove();
+
+                return;
+            }
+
+            const name = element.getAttribute('name') ?? DEFAULT_SLOT_NAME;
+
+            if (slotRecords.has(name)) {
+                console.error(`Duplicate <slot${name ? ` name="${name}"` : ''}> in the "${this.componentName}" component's template`, element);
+                element.remove();
+
+                return;
+            }
+
+            const fallbackFragment = document.createDocumentFragment();
+
+            while (element.firstChild) {
+                fallbackFragment.appendChild(element.firstChild);
+            }
+
+            const nestedSlot = fallbackFragment.querySelector('slot');
+
+            if (nestedSlot) {
+                console.error(`A <slot> cannot nest inside another slot's fallback content, in the "${this.componentName}" component's template`, nestedSlot);
+                nestedSlot.remove();
+            }
+
+            const anchor = document.createComment(` slot: ${name || '(default)'} `);
+
+            element.replaceWith(anchor);
+            slotRecords.set(name, {anchor, fallbackFragment});
+        });
+
+        return slotRecords;
+    }
+
+    // Wires a slot's held fallback fragment (child scope) then unwraps it in
+    // place of the anchor — decide-then-wire's "empty" branch, called both
+    // from real distribution and from the parentless-root fallback path.
+    #fillSlotWithFallback(entry: SlotRecordEntry, parentComponentNameList: string[]): Promise<PromiseRejectedResult | undefined> {
+        return this.#wireFragment(entry.fallbackFragment, parentComponentNameList).then(childFailure => {
+            entry.anchor.replaceWith(...Array.from(entry.fallbackFragment.childNodes));
+
+            return childFailure;
+        });
+    }
+
+    #wireEverySlotFallback(slotRecords: Map<string, SlotRecordEntry>, parentComponentNameList: string[]): Promise<PromiseRejectedResult | undefined> {
+        return Promise.all(Array.from(slotRecords.values()).map(entry => this.#fillSlotWithFallback(entry, parentComponentNameList)))
+            .then(failures => failures.find((failure): failure is PromiseRejectedResult => failure !== undefined));
+    }
+
+    // Distribution: runs after the destroyed gate, before the child fragment
+    // appends. A template-only include's borrowed wrapper, or a plain root
+    // mount, never received parent-authored content — only a genuine SFC
+    // child's own wrapper does, so only that case collects and routes
+    // `componentWrapper`'s childNodes; everything else just wires any
+    // recorded slot's fallback (a no-op when there are no slots at all).
+    #distributeContent({componentWrapper, slotRecords, parentComponentNameList, isOwnMount}: {
+        componentWrapper: HTMLElement;
+        slotRecords: Map<string, SlotRecordEntry>;
+        parentComponentNameList: string[];
+        isOwnMount: boolean;
+    }): Promise<PromiseRejectedResult | undefined> {
+        const receivesProjection = isOwnMount && this.#parentEventTarget !== undefined;
+
+        if (!receivesProjection) {
+            return this.#wireEverySlotFallback(slotRecords, parentComponentNameList);
+        }
+
+        const projectedNodes = Array.from(componentWrapper.childNodes);
+
+        projectedNodes.forEach(node => componentWrapper.removeChild(node));
+
+        if (slotRecords.size === 0) {
+            if (projectedNodes.some(isContentNode)) {
+                console.error(`The "${this.componentName}" component's template has no <slot> — wrapper content is not supported and was removed`, componentWrapper);
+            }
+
+            return Promise.resolve(undefined);
+        }
+
+        const buckets = new Map<string, ChildNode[]>();
+
+        projectedNodes.forEach(node => {
+            let name = DEFAULT_SLOT_NAME;
+
+            if (node instanceof HTMLElement && node.dataset['slot'] !== undefined) {
+                name = node.dataset['slot']!;
+
+                if (!slotRecords.has(name)) {
+                    console.error(`data-slot="${name}" has no matching <slot name="${name}"> in the "${this.componentName}" component`, node);
+                    name = DEFAULT_SLOT_NAME;
+                }
+            }
+
+            let bucket = buckets.get(name);
+
+            if (!bucket) {
+                bucket = [];
+                buckets.set(name, bucket);
+            }
+
+            bucket.push(node);
+        });
+
+        if (!slotRecords.has(DEFAULT_SLOT_NAME) && (buckets.get(DEFAULT_SLOT_NAME) ?? []).some(isContentNode)) {
+            console.error(`The "${this.componentName}" component has no default <slot> for unrouted content`, componentWrapper);
+        }
+
+        const fillPromises = Array.from(slotRecords.entries()).map(([name, entry]) => {
+            const bucket = buckets.get(name) ?? [];
+
+            if (bucket.some(isContentNode)) {
+                entry.anchor.replaceWith(...bucket);
+
+                return Promise.resolve(undefined);
+            }
+
+            return this.#fillSlotWithFallback(entry, parentComponentNameList);
+        });
+
+        return Promise.all(fillPromises)
+            .then(failures => failures.find((failure): failure is PromiseRejectedResult => failure !== undefined));
     }
 
     // Wires an arbitrary detached subtree exactly as the template root is
@@ -1430,6 +1683,23 @@ export default class Component {
     // marks bindings dirty or drains — that first collection pass is the
     // caller's job, run once ALL wiring for the mount is done.
     #wireFragment(fragment: DocumentFragment, parentComponentNameList: string[]): Promise<PromiseRejectedResult | undefined> {
+        // The combo ban runs before data-for extraction destroys the evidence
+        // (a data-for clone keeps data-slot, and an extracted anchor carries
+        // no routing information of its own)
+        fragment.querySelectorAll<HTMLElement>('[data-slot]').forEach(element => {
+            if (element.dataset['slot'] === '') {
+                console.error('An empty data-slot is not a usable slot name', element);
+                element.removeAttribute('data-slot');
+
+                return;
+            }
+
+            if (element.dataset['showIf'] !== undefined || element.dataset['for'] !== undefined) {
+                console.error('data-slot cannot be combined with data-show-if or data-for on the same element — wrap the routed content in its own element', element);
+                element.removeAttribute('data-slot');
+            }
+        });
+
         fragment.querySelectorAll<HTMLElement>('[data-for]').forEach(element => {
             if (!fragment.contains(element)) {
                 // An ancestor data-for errored and was removed with its subtree
@@ -1956,10 +2226,7 @@ export default class Component {
         const meaningfulSiblings: ChildNode[] = [];
 
         for (let node = templateElement.nextSibling; node; node = node.nextSibling) {
-            const ignorable = (node.nodeType === Node.TEXT_NODE && !(node.textContent ?? '').trim())
-                || node.nodeType === Node.COMMENT_NODE;
-
-            if (!ignorable) {
+            if (isMeaningfulNode(node)) {
                 meaningfulSiblings.push(node);
             }
         }
