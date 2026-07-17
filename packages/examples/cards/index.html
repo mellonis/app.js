@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Cards — app.js example</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+    import Component from '/app.js';
+
+    new Component({
+        element: document.querySelector('#app'),
+        data: {draft: '', guests: ['Ada', 'Linus'], showDetails: false},
+        methods: {
+            addGuest(event) {
+                event.preventDefault();
+
+                const name = this.data.draft.trim();
+
+                if (!name || this.data.guests.includes(name)) {
+                    return;
+                }
+
+                this.data.guests = [...this.data.guests, name];
+                this.data.draft = '';
+            },
+            removeGuest(event, guest) {
+                this.data.guests = this.data.guests.filter(name => name !== guest);
+            },
+            toggleDetails() {
+                this.data.showDetails = !this.data.showDetails;
+            },
+        },
+    });
+</script>
+</body>
+</html>

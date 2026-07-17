@@ -1,0 +1,33 @@
+<template>
+    <h1>Meetup</h1>
+
+    <!-- Both slots filled. The details paragraph starts hidden: its anchor
+         comment migrates into the card and the element swaps back in later,
+         driven by a handler the parent owns. -->
+    <div data-component="card">
+        <span data-slot="title">JS study group</span>
+        <p>Every Thursday at six, room 42.</p>
+        <button data-on-click="toggleDetails">Details</button>
+        <p data-show-if="showDetails">Bring a laptop; the coffee machine takes cards only.</p>
+    </div>
+
+    <!-- Projected content stays the parent's: the title interpolation, the
+         two-way input, and the list all read and write the parent's data
+         from inside the card's subtree. -->
+    <div data-component="card">
+        <span data-slot="title">Guests (${guests.length})</span>
+        <form data-on-submit="addGuest">
+            <input data-value="draft" placeholder="Who's coming?">
+            <button type="submit">Add</button>
+        </form>
+        <ul>
+            <li data-for="guests" data-key="$item">
+                <span>${$item}</span>
+                <button data-on-click="removeGuest">remove</button>
+            </li>
+        </ul>
+    </div>
+
+    <!-- Nothing projected: both fallbacks render. -->
+    <div data-component="card"></div>
+</template>

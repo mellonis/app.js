@@ -7,6 +7,7 @@
     "counter": "node serve.mjs counter",
     "form": "node serve.mjs form",
     "todo": "node serve.mjs todo",
+    "cards": "node serve.mjs cards",
     "registration": "node serve.mjs registration",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"

@@ -16,6 +16,7 @@ npm test            # framework unit suite + examples smoke suite
 npm run ex:counter      # serve the counter example on :8123
 npm run ex:form         # serve the form example on :8123
 npm run ex:todo         # serve the todo example on :8123
+npm run ex:cards        # serve the cards (slots) example on :8123
 npm run ex:registration # serve the registration capstone example on :8123
 npm test -w app.js -- tests/components.test.ts   # single test file
 ```
