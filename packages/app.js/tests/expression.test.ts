@@ -163,6 +163,29 @@ describe('members, calls, optional chaining', () => {
     });
 });
 
+describe('evaluation order (issue #24)', () => {
+    it('an optional member call short-circuits before evaluating arguments', () => {
+        const boom = () => { throw new Error('args must not evaluate'); };
+
+        expect(evalWith('u?.f(boom())', {u: null, boom})).toBe(undefined);
+        expect(evalWith('u?.f(boom())', {u: undefined, boom})).toBe(undefined);
+    });
+
+    it('method calls evaluate the receiver before the arguments', () => {
+        const order: string[] = [];
+        const target = {get obj() { order.push('receiver'); return {m: (x: unknown) => x}; }};
+        const arg = () => { order.push('arg'); return 1; };
+
+        expect(evalWith('t.obj.m(arg())', {t: target, arg})).toBe(1);
+        expect(order).toEqual(['receiver', 'arg']);
+    });
+
+    it('the no-space optional-chain/number ambiguity resolves as a ternary', () => {
+        expect(evalWith('ok?.5:1', {ok: true})).toBe(0.5);
+        expect(evalWith('ok?.5:1', {ok: false})).toBe(1);
+    });
+});
+
 describe('sandbox', () => {
     it('constructor, __proto__, prototype are blocked on every access form', () => {
         expect(() => evalWith('s.constructor', {s: ''})).toThrow(/not reachable/);
@@ -267,6 +290,13 @@ describe('assignable paths', () => {
     it('assign on a non-assignable expression throws; sandbox keys blocked in paths', () => {
         expect(() => compile('a + b').assign(resolver({}), 1)).toThrow(/not assignable/);
         expect(() => compile('a.constructor.x').assign(resolver({a: {}}), 1)).toThrow(/not reachable/);
+    });
+
+    it('exposes the assignment depth for assignable paths (issue #24)', () => {
+        expect(compile('name').assignmentDepth).toBe(1);
+        expect(compile('(name)').assignmentDepth).toBe(1);
+        expect(compile('user.contact.email').assignmentDepth).toBe(3);
+        expect(compile('a + b').assignmentDepth).toBe(undefined);
     });
 
     it('compile caches by source', () => {

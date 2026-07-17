@@ -1477,7 +1477,7 @@ export default class Component {
                 const writeBackValue: unknown = isCheckbox ? (element as HTMLInputElement).checked : (element as HTMLInputElement).value;
 
                 try {
-                    if (compiled.source.trim() === compiled.rootIdentifier) {
+                    if (compiled.assignmentDepth === 1) {
                         (this.data as Record<string, unknown>)[compiled.rootIdentifier!] = writeBackValue;
                     } else {
                         compiled.assign(this.#dataResolver, writeBackValue);

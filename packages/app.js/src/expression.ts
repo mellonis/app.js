@@ -9,6 +9,7 @@ export interface CompiledExpression {
     readonly source: string;
     readonly assignable: boolean;
     readonly rootIdentifier?: string;
+    readonly assignmentDepth?: number;
     evaluate(resolve: IdentifierResolver): unknown;
     assign(resolve: IdentifierResolver, value: unknown): void;
 }
@@ -784,17 +785,24 @@ function evaluateNode(node: Node, resolve: IdentifierResolver): unknown {
             return (object as Record<string | number, unknown>)[key];
         }
         case 'call': {
-            const args: unknown[] = [];
+            // Receiver first, then arguments — the order the language the
+            // students already know uses; an optional receiver that turns out
+            // nullish short-circuits before any argument evaluates
+            const collectArgs = (): unknown[] => {
+                const args: unknown[] = [];
 
-            node.args.forEach(arg => {
-                const value = evaluateNode(arg.expr, resolve);
+                node.args.forEach(arg => {
+                    const value = evaluateNode(arg.expr, resolve);
 
-                if (arg.spread) {
-                    args.push(...(value as unknown[]));
-                } else {
-                    args.push(value);
-                }
-            });
+                    if (arg.spread) {
+                        args.push(...(value as unknown[]));
+                    } else {
+                        args.push(value);
+                    }
+                });
+
+                return args;
+            };
 
             if (node.callee.kind === 'member') {
                 const receiver = evaluateNode(node.callee.object, resolve);
@@ -810,9 +818,10 @@ function evaluateNode(node: Node, resolve: IdentifierResolver): unknown {
                     throw new TypeError(`${String(key)} is not a function`);
                 }
 
-                return fn.apply(receiver, args);
+                return fn.apply(receiver, collectArgs());
             }
 
+            const args = collectArgs();
             const fn = evaluateNode(node.callee, resolve);
 
             if (typeof fn !== 'function') {
@@ -866,6 +875,7 @@ export function compile(source: string): CompiledExpression {
         source,
         assignable: path !== null,
         rootIdentifier: path?.[0],
+        assignmentDepth: path?.length,
         evaluate: resolve => evaluateNode(ast, resolve),
         assign: (resolve, value) => {
             if (!path) {

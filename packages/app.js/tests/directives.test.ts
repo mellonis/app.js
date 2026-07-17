@@ -116,6 +116,26 @@ describe('data-value', () => {
     });
 });
 
+describe('data-value write-back routing (issue #24)', () => {
+    it('a parenthesized bare root still writes back through the ghost', async () => {
+        stubTemplates({root: '<template><input data-value="(title)"><p>${title}</p></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {title: 'before'}});
+        await app.ready;
+
+        const input = host.querySelector('input')!;
+
+        input.value = 'after';
+        input.dispatchEvent(new Event('input'));
+
+        expect(app.data.title).toBe('after');
+
+        await app.updated();
+
+        expect(host.querySelector('p')?.textContent).toBe('after');
+    });
+});
+
 describe('data-display-if', () => {
     it('toggles inline display while preserving the original inline value', async () => {
         stubTemplates({root: '<template><p data-display-if="visible" style="display: flex">x</p></template>'});
