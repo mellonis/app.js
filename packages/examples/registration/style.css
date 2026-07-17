@@ -61,3 +61,13 @@ pre {
 [data-component="contact-row"] {
     display: contents;
 }
+
+.card {
+    border: 1px solid #ddd;
+    border-radius: 0.5rem;
+    padding: 1rem;
+}
+
+.card h2 {
+    margin-top: 0;
+}

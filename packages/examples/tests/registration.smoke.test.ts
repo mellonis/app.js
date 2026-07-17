@@ -103,11 +103,15 @@ it('drives the full registration flow: submit-first validation, live fixes, reve
     agreedCheckbox.dispatchEvent(new windowRealm.Event('change'));
     await pollFor(() => submitButton.disabled === false);
 
-    // A clean submit — the success view renders the piped JSON summary
+    // A clean submit — the success view renders as a card component, its
+    // title projected into a named slot and the JSON summary into the
+    // default slot
     form.dispatchEvent(new windowRealm.Event('submit'));
     await pollFor(() => document.querySelector('pre') !== null);
 
-    const summary = JSON.parse(document.querySelector('pre')!.textContent!);
+    expect(document.querySelector('.card h2')?.textContent).toBe('You\'re in.');
+
+    const summary = JSON.parse(document.querySelector('.card pre')!.textContent!);
 
     expect(summary).toEqual({
         name: 'Ada Lovelace',

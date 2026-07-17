@@ -4,7 +4,7 @@ A tiny reactive framework
 # Overview
 
 - Templates should be placed in /templates directory
-- Meaningful attributes in templates are: data-component, data-show-if, data-display-if, data-disabled-if, data-value, data-on-*, data-for + data-key, data-ref
+- Meaningful attributes in templates are: data-component, data-show-if, data-display-if, data-disabled-if, data-value, data-on-*, data-for + data-key, data-ref, data-slot
 - Component needs to be constructed with parameters: element, data, methods and componentName, which is optional
 - A Component instance exposes `ready` — a promise that resolves when the initial mount finishes (and rejects with the original error if it fails)
 - `app.destroy()` stops the app: listeners are removed (one `AbortController` for everything), updates stop, the rendered DOM stays as-is
@@ -54,6 +54,30 @@ A tiny reactive framework
 
 - `data:` module imports (how a component's `<script>` is loaded) require a CSP without a strict `script-src` — fine for the teaching context.
 - Student trap: component events always ride the `data-component-` prefix — `data-on-removed` on a component element binds a DOM event that will never fire.
+
+## Slots (content projection)
+
+- A script-bearing component's template can declare `<slot>` (default) and `<slot name="x">` (named) regions. The parent routes markup into them by marking a `data-component` wrapper's top-level children with `data-slot="x"`; everything else falls into the default slot. A slot's own children render as a fallback, but only when nothing was projected into it. Projected content keeps the parent's scope (its expressions and handlers still resolve through the parent); a rendered fallback is scoped to the child instead.
+
+  ```html
+  <!-- templates/card.html -->
+  <template>
+      <div class="card">
+          <h2><slot name="title">Untitled</slot></h2>
+          <div class="card-body"><slot>Nothing here yet.</slot></div>
+      </div>
+  </template>
+  <script>export default {};</script>
+  ```
+
+  ```html
+  <div data-component="card">
+      <span data-slot="title">Hello</span>
+      <p>Landed in the default slot.</p>
+  </div>
+  ```
+
+- A component with no `<slot>` at all can't take wrapper content — putting markup inside its `data-component` element is a loud error, and the content is dropped.
 
 # Where to start
 
