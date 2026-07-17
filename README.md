@@ -55,6 +55,24 @@ A tiny reactive framework
 - `data:` module imports (how a component's `<script>` is loaded) require a CSP without a strict `script-src` — fine for the teaching context.
 - Student trap: component events always ride the `data-component-` prefix — `data-on-removed` on a component element binds a DOM event that will never fire.
 
+# Where to start
+
+The examples form a ladder — each one introduces the next handful of ideas:
+
+1. **counter** — a component, `${}` interpolation, `data-on-click`, state that
+   re-renders when written.
+2. **form** — two-way `data-value` on text inputs, selects, checkboxes, and a
+   radio group; `data-on-submit`.
+3. **todo** — keyed lists (`data-for` + `data-key`), `data-show-if`, and a
+   single-file child component with props and events.
+4. **registration** — everything at once: a revealed section, repeatable
+   component rows, a submit button gated by `data-disabled-if`, pipes, and
+   real Zod validation.
+
+Read the framework the same way: `docs/internals.md` is the map, and the git
+history is the long course — the engine grew one reviewed feature at a time,
+and every stage still runs if you check it out.
+
 # Quick start
 
 ```sh
