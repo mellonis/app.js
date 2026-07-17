@@ -232,7 +232,6 @@ export default class Component {
     #cleanup: (() => void) | undefined;
     readonly #refsBacking: Record<string, HTMLElement> = {};
 
-    readonly #writeBackSources = new Set<HTMLElement>();
     #pendingFlush: {promise: Promise<void>; resolve: () => void} | null = null;
 
     readonly #abortController = new AbortController();
@@ -389,7 +388,6 @@ export default class Component {
         this.#propBindings.clear();
         this.#subscribersByPath.clear();
         this.#dirtyBindings.clear();
-        this.#writeBackSources.clear();
         Object.keys(this.#refsBacking).forEach(key => delete this.#refsBacking[key]);
 
         // No deadlocked awaiters: a caller holding the promise from an
@@ -1411,15 +1409,6 @@ export default class Component {
                     } else {
                         compiled.assign(this.#dataResolver, (element as HTMLInputElement).value);
                     }
-
-                    // Enroll only after a successful write, and only when it
-                    // actually scheduled a flush — a gate-suppressed write
-                    // (retyping the same value) touches nothing, and enrolling
-                    // it anyway would strand the entry: the NEXT programmatic
-                    // write would find it here and wrongly skip its rewrite
-                    if (this.#pendingFlush) {
-                        this.#writeBackSources.add(element);
-                    }
                 } catch (error) {
                     console.error(`Can't write back the "${compiled.source}" expression`, element, error);
                 }
@@ -1640,12 +1629,6 @@ export default class Component {
     }
 
     #updateOneValue(element: HTMLElement): void {
-        if (this.#writeBackSources.delete(element)) {
-            // Consume on first visit: a later drain iteration (a derived
-            // write to this input's own path) rewrites the input normally
-            return;
-        }
-
         const entry = this.#valueElementToDataMap.get(element);
 
         if (!entry) {
@@ -1662,7 +1645,19 @@ export default class Component {
             return;
         }
 
-        (element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value = newValue as string;
+        const target = element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+        const stringValue = newValue as string;
+
+        // Value-equality skip: during typing, data equals the input's value
+        // by definition — that IS caret safety. Comparing before writing
+        // closes both write-back strands (a same-tick programmatic write, a
+        // gate-suppressed write with an unrelated flush pending) without any
+        // enrollment bookkeeping
+        if (target.value === stringValue) {
+            return;
+        }
+
+        target.value = stringValue;
     }
 
     #updateOneText(node: Text): void {

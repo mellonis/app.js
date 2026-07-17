@@ -474,7 +474,7 @@ describe('batching (phase B)', () => {
         expect(host.querySelector('p')?.textContent).toBe('3');
     });
 
-    it('write-back sources: the typed input is skipped once; a second input on the same path updates', async () => {
+    it('value-equality write skip: the typed input is left alone; a second input on the same path updates', async () => {
         stubTemplates({root: '<template><input id="a" data-value="name"><input id="b" data-value="name"></template>'});
         const host = mountPoint();
         const app = new Component({element: host, data: {name: 'x'}});
@@ -501,6 +501,27 @@ describe('batching (phase B)', () => {
 
         const input = host.querySelector('input') as HTMLInputElement;
 
+        input.value = 'same';
+        input.dispatchEvent(new Event('input'));
+
+        await app.updated();
+
+        app.data.name = 'fresh';
+
+        await app.updated();
+
+        expect(input.value).toBe('fresh');
+    });
+
+    it('a suppressed write-back with an unrelated flush pending cannot strand the input', async () => {
+        stubTemplates({root: '<template><input data-value="name"><p>${other}</p></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {name: 'same', other: 0}});
+        await app.ready;
+
+        const input = host.querySelector('input') as HTMLInputElement;
+
+        app.data.other = 1;
         input.value = 'same';
         input.dispatchEvent(new Event('input'));
 

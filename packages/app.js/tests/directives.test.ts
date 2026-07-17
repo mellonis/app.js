@@ -237,7 +237,6 @@ describe('data-value: form controls only (issue #18)', () => {
 
         textarea.value = 'after';
         textarea.dispatchEvent(new Event('input'));
-        await app.updated();
 
         expect(app.data.note).toBe('after');
 

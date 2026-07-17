@@ -39,10 +39,6 @@ it('adds, toggles, and removes todos through the real built framework with eval 
     const add = async (title: string) => {
         input.value = title;
         input.dispatchEvent(new windowRealm.Event('input'));
-        // Let the typed-input flush settle (and its write-back skip-once
-        // consume) before submit's own write to the same path, so the
-        // draft-clearing render isn't stranded behind it
-        await new Promise(resolve => setTimeout(resolve, 0));
         form.dispatchEvent(new windowRealm.Event('submit'));
         await pollFor(() => [...document.querySelectorAll('li')].some(li => li.textContent!.includes(title)));
     };
