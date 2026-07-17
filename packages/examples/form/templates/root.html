@@ -2,7 +2,14 @@
     <form data-on-submit="submit">
         <label>Name: <input data-value="name"></label>
         <label>Email: <input data-value="user.email"></label>
+        <label><input type="checkbox" data-value="subscribe"> Subscribe</label>
+        <fieldset>
+            <legend>Contact preference</legend>
+            <label><input type="radio" name="contact" value="email" data-value="contact"> Email</label>
+            <label><input type="radio" name="contact" value="phone" data-value="contact"> Phone</label>
+            <label><input type="radio" name="contact" value="none" data-value="contact"> None</label>
+        </fieldset>
         <button type="submit">Submit</button>
     </form>
-    <p>Preview: ${name || '(no name)'}, ${user.email || '(no email)'}</p>
+    <p>Preview: ${name || '(no name)'}, ${user.email || '(no email)'}, ${subscribe ? 'subscribed' : 'not subscribed'}, contact: ${contact}</p>
 </template>

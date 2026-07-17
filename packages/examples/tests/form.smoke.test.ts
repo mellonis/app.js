@@ -25,18 +25,24 @@ it('submits the form and logs the collected values to the console', async () => 
 
     await pollFor(() => document.querySelector('form') !== null);
 
-    expect(document.querySelector('p')?.textContent).toBe('Preview: (no name), (no email)');
+    expect(document.querySelector('p')?.textContent).toBe('Preview: (no name), (no email), not subscribed, contact: email');
 
-    const [nameInput, emailInput] = [...document.querySelectorAll('input')];
+    const [nameInput, emailInput, subscribeCheckbox, , phoneRadio] = [...document.querySelectorAll('input')];
     nameInput.value = 'Ada';
     nameInput.dispatchEvent(new windowRealm.Event('input'));
     emailInput.value = 'ada@lovelace.dev';
     emailInput.dispatchEvent(new windowRealm.Event('input'));
 
-    await pollFor(() => document.querySelector('p')?.textContent === 'Preview: Ada, ada@lovelace.dev');
-    expect(document.querySelector('p')?.textContent).toBe('Preview: Ada, ada@lovelace.dev');
+    subscribeCheckbox.checked = true;
+    subscribeCheckbox.dispatchEvent(new windowRealm.Event('change'));
+
+    phoneRadio.checked = true;
+    phoneRadio.dispatchEvent(new windowRealm.Event('change'));
+
+    await pollFor(() => document.querySelector('p')?.textContent === 'Preview: Ada, ada@lovelace.dev, subscribed, contact: phone');
+    expect(document.querySelector('p')?.textContent).toBe('Preview: Ada, ada@lovelace.dev, subscribed, contact: phone');
 
     document.querySelector('form')!.dispatchEvent(new windowRealm.Event('submit'));
 
-    expect(page.virtualConsolePrinter.readAsString()).toContain('Submitted: name=Ada, email=ada@lovelace.dev');
+    expect(page.virtualConsolePrinter.readAsString()).toContain('Submitted: name=Ada, email=ada@lovelace.dev, subscribe=true, contact=phone');
 });

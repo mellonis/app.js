@@ -11,11 +11,11 @@
 
     new Component({
         element: document.querySelector('#app'),
-        data: {name: '', user: {email: ''}},
+        data: {name: '', user: {email: ''}, subscribe: false, contact: 'email'},
         methods: {
             submit(event) {
                 event.preventDefault();
-                console.log(`Submitted: name=${this.data.name}, email=${this.data.user.email}`);
+                console.log(`Submitted: name=${this.data.name}, email=${this.data.user.email}, subscribe=${this.data.subscribe}, contact=${this.data.contact}`);
             },
         },
     });

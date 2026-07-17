@@ -262,21 +262,20 @@ describe('data-value: form controls only (issue #18)', () => {
         expect(app.data.pick).toBe('a');
     });
 
-    it('errors on checkbox/radio inputs (their state is checked, not value)', async () => {
+    it('errors on file inputs (write-back is impossible; use data-on-change instead)', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-        stubTemplates({root: '<template><input type="checkbox" data-value="agree"></template>'});
+        stubTemplates({root: '<template><input type="file" data-value="upload"></template>'});
         const host = mountPoint();
-        const app = new Component({element: host, data: {agree: false}});
+        const app = new Component({element: host, data: {upload: null}});
         await app.ready;
 
-        expect(errorSpy.mock.calls.flat().join(' ')).toContain('checked');
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain('data-on-change');
 
-        const box = host.querySelector('input')!;
+        const input = host.querySelector('input')!;
 
-        box.checked = true;
-        box.dispatchEvent(new Event('input'));
+        input.dispatchEvent(new Event('change'));
 
-        expect(app.data.agree).toBe(false);
+        expect(app.data.upload).toBe(null);
     });
 
     it('errors loudly on a non-form element and does not bind', async () => {
@@ -295,6 +294,74 @@ describe('data-value: form controls only (issue #18)', () => {
         app.data.title = 't2';
 
         expect(span.textContent).toBe('static');
+    });
+});
+
+describe('data-value: checkbox and radio (issue #19)', () => {
+    it('binds a checkbox two-way via checked', async () => {
+        stubTemplates({root: '<template><input type="checkbox" data-value="agree"></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {agree: false}});
+        await app.ready;
+
+        const box = host.querySelector('input')!;
+
+        expect(box.checked).toBe(false);
+
+        box.checked = true;
+        box.dispatchEvent(new Event('change'));
+
+        expect(app.data.agree).toBe(true);
+
+        app.data.agree = false;
+        await app.updated();
+
+        expect(box.checked).toBe(false);
+    });
+
+    it('coerces a truthy non-boolean into checked and writes back real booleans', async () => {
+        stubTemplates({root: '<template><input type="checkbox" data-value="agree"></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {agree: 1}});
+        await app.ready;
+
+        const box = host.querySelector('input')!;
+
+        expect(box.checked).toBe(true);
+
+        box.checked = false;
+        box.dispatchEvent(new Event('change'));
+
+        expect(app.data.agree).toBe(false);
+
+        box.checked = true;
+        box.dispatchEvent(new Event('change'));
+
+        expect(app.data.agree).toBe(true);
+    });
+
+    it('binds a group of radios sharing one expression', async () => {
+        stubTemplates({root: '<template><input type="radio" value="a" data-value="pick"><input type="radio" value="b" data-value="pick"><input type="radio" value="c" data-value="pick"></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {pick: 'b'}});
+        await app.ready;
+
+        const [a, b, c] = [...host.querySelectorAll('input')] as HTMLInputElement[];
+
+        expect(a.checked).toBe(false);
+        expect(b.checked).toBe(true);
+        expect(c.checked).toBe(false);
+
+        c.checked = true;
+        c.dispatchEvent(new Event('change'));
+
+        expect(app.data.pick).toBe('c');
+
+        await app.updated();
+
+        expect(a.checked).toBe(false);
+        expect(b.checked).toBe(false);
+        expect(c.checked).toBe(true);
     });
 });
 

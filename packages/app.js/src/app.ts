@@ -1383,8 +1383,8 @@ export default class Component {
                 return;
             }
 
-            if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) {
-                console.error('data-value does not support checkbox/radio inputs — their state is `checked`, not `value`', element);
+            if (element instanceof HTMLInputElement && element.type === 'file') {
+                console.error('data-value does not support file inputs (a browser will not let script set .files) — handle their change event with data-on-change instead', element);
 
                 return;
             }
@@ -1408,12 +1408,18 @@ export default class Component {
                 binding: {kind: 'value', element, dependencies: new Set()},
             });
 
-            element.addEventListener(element.tagName === 'SELECT' ? 'change' : 'input', () => {
+            const isCheckbox = element instanceof HTMLInputElement && element.type === 'checkbox';
+            const isRadio = element instanceof HTMLInputElement && element.type === 'radio';
+            const eventName = isCheckbox || isRadio || element.tagName === 'SELECT' ? 'change' : 'input';
+
+            element.addEventListener(eventName, () => {
+                const writeBackValue: unknown = isCheckbox ? (element as HTMLInputElement).checked : (element as HTMLInputElement).value;
+
                 try {
                     if (compiled.source.trim() === compiled.rootIdentifier) {
-                        (this.data as Record<string, unknown>)[compiled.rootIdentifier!] = (element as HTMLInputElement).value;
+                        (this.data as Record<string, unknown>)[compiled.rootIdentifier!] = writeBackValue;
                     } else {
-                        compiled.assign(this.#dataResolver, (element as HTMLInputElement).value);
+                        compiled.assign(this.#dataResolver, writeBackValue);
                     }
                 } catch (error) {
                     console.error(`Can't write back the "${compiled.source}" expression`, element, error);
@@ -1647,6 +1653,26 @@ export default class Component {
             newValue = this.#trackEvaluation(entry.binding, () => this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)}));
         } catch (error) {
             console.error(`Can't evaluate the "${entry.expression}" expression`, element, error);
+
+            return;
+        }
+
+        if (element instanceof HTMLInputElement && element.type === 'checkbox') {
+            const checked = !!newValue;
+
+            if (element.checked !== checked) {
+                element.checked = checked;
+            }
+
+            return;
+        }
+
+        if (element instanceof HTMLInputElement && element.type === 'radio') {
+            const checked = newValue === element.value;
+
+            if (element.checked !== checked) {
+                element.checked = checked;
+            }
 
             return;
         }
