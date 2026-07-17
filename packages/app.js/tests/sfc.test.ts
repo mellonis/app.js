@@ -191,6 +191,28 @@ describe('single-file components', () => {
         expect(errorSpy.mock.calls.flat().join(' ')).toContain('props');
     });
 
+    it('a typo in a data-component-on-* method name logs loudly at wiring (issue #27)', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        stubTemplates({
+            root: '<template><div data-component="pinger" data-component-on-ping="typo"></div></template>',
+            pinger: `<template><button data-on-click="fire">go</button></template>
+<script>export default {methods: {fire() { this.events.emit('ping', 42); }}};</script>`,
+        });
+        const host = mountPoint();
+        new Component({element: host, methods: {}});
+
+        const button = await vi.waitFor(() => {
+            const el = host.querySelector('button');
+            expect(el).not.toBeNull();
+            return el!;
+        });
+
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain('typo');
+
+        expect(() => button.click()).not.toThrow();
+    });
+
     it('a child subscribes to its parent via events.onParent; subscription dies with the child', async () => {
         stubTemplates({
             root: '<template><div data-component="listener"></div></template>',

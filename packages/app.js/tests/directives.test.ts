@@ -564,7 +564,9 @@ describe('data-on-*', () => {
         expect(onSubmit).toHaveBeenCalledTimes(1);
     });
 
-    it('ignores unknown method names without throwing', async () => {
+    it('a typo in the method name logs loudly at wiring time, not at click, and clicking does nothing (issue #27)', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
         stubTemplates({root: '<template><button data-on-click="missing">go</button></template>'});
         const host = mountPoint();
         new Component({element: host});
@@ -575,7 +577,58 @@ describe('data-on-*', () => {
             return el!;
         });
 
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain('missing');
+
+        const errorsAtMount = errorSpy.mock.calls.length;
+
         expect(() => button.click()).not.toThrow();
+        expect(errorSpy.mock.calls.length).toBe(errorsAtMount);
+    });
+
+    it('a valid method registers with no wiring error (guards against false positives)', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        stubTemplates({root: '<template><button data-on-click="hit">go</button></template>'});
+        const host = mountPoint();
+        const hit = vi.fn();
+        new Component({element: host, methods: {hit}});
+
+        const button = await vi.waitFor(() => {
+            const el = host.querySelector('button');
+            expect(el).not.toBeNull();
+            return el!;
+        });
+
+        expect(errorSpy).not.toHaveBeenCalled();
+
+        button.click();
+
+        expect(hit).toHaveBeenCalledTimes(1);
+        expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it('a typo in an in-item handler logs once per clone wiring (issue #27)', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id" data-on-click="oops">${$item.label}</li></ul></template>'});
+        const host = mountPoint();
+        const app = new Component({
+            element: host,
+            data: {items: [{id: 1, label: 'a'}, {id: 2, label: 'b'}]},
+        });
+        await app.ready;
+
+        const oopsErrors = errorSpy.mock.calls.filter(call => call.some(arg => typeof arg === 'string' && arg.includes('oops')));
+
+        expect(oopsErrors).toHaveLength(2);
+
+        const errorsAfterMount = errorSpy.mock.calls.length;
+
+        host.querySelectorAll('li').forEach(item => {
+            expect(() => item.dispatchEvent(new Event('click'))).not.toThrow();
+        });
+
+        expect(errorSpy.mock.calls.length).toBe(errorsAfterMount);
     });
 });
 

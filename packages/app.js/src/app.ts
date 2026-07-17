@@ -970,6 +970,10 @@ export default class Component {
                     const eventName = DATA_ON_ATTRIBUTE_NAME_PATTERN.exec(attribute.name)![1];
                     const methodName = attribute.value;
 
+                    if (!this.#validateMethodName(methodName, element)) {
+                        return;
+                    }
+
                     element.addEventListener(eventName, (event) => {
                         const entry = block.entries.get(key);
 
@@ -1244,6 +1248,19 @@ export default class Component {
         });
     }
 
+    // methods is frozen at construction, so a name that isn't a key now never
+    // becomes one — the check belongs here, at wiring time, not at the
+    // event-time guard below (which stays as defense-in-depth)
+    #validateMethodName(methodName: string, element: HTMLElement): boolean {
+        if (Object.hasOwn(this.methods, methodName)) {
+            return true;
+        }
+
+        console.error(`no such method "${methodName}" in methods — check the attribute for a typo`, element);
+
+        return false;
+    }
+
     #handleEvent({methodName, event, item, index}: {methodName: string; event: Event; item?: unknown; index?: number}): void {
         if (this.methods.hasOwnProperty(methodName)) {
             this.methods[methodName](event, item, index);
@@ -1297,6 +1314,10 @@ export default class Component {
             if (eventName === RESERVED_EVENT_NAME) {
                 console.error('data-component-on-props is not supported — the parent caused those re-seeds', element);
 
+                return;
+            }
+
+            if (!this.#validateMethodName(methodName, element)) {
                 return;
             }
 
@@ -1494,6 +1515,10 @@ export default class Component {
                 .forEach(attribute => {
                     const eventName = DATA_ON_ATTRIBUTE_NAME_PATTERN.exec(attribute.name)![1];
                     const methodName = attribute.value;
+
+                    if (!this.#validateMethodName(methodName, element)) {
+                        return;
+                    }
 
                     element.addEventListener(eventName, (event) => {
                         this.#handleEvent({methodName, event});
