@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Component from '../src/app';
-import { mountPoint, resetTemplateCache, stubTemplates } from './helpers';
+import { flush, mountPoint, resetTemplateCache, stubTemplates } from './helpers';
 
 afterEach(() => {
     vi.unstubAllGlobals();
@@ -20,6 +20,10 @@ const CARD_CSS = `
     :scope { display: block; }
 `;
 
+// Several fixtures in this file share the byte-identical script text
+// `export default {};` on purpose: identical script text resolves to ONE
+// cached module object, and only that sharing keeps these tests honest about
+// the per-component definition copy. Keep the scripts identical.
 const CARD_SFC = `<template><p class="card">card</p></template>
 <style>${CARD_CSS}</style>
 <script>export default {};</script>`;
@@ -175,6 +179,38 @@ describe('component styles', () => {
 
         expect(styles).toHaveLength(1);
         expect(styles[0].textContent).toContain('@scope ([data-component="we\\"ir\\\\d"]) to (:scope [data-component-root] > *) {');
+    });
+
+    it('a styled component mounted only through a data-for block still injects — once, however many entries', async () => {
+        stubTemplates({
+            root: '<template><ul><li data-for="items" data-key="$item"><div data-component="card"></div></li></ul></template>',
+            card: CARD_SFC,
+        });
+        const host = mountPoint();
+        const app = new Component({element: host, data: {items: ['a', 'b']}});
+        await app.ready;
+
+        // per-item children are never awaited by ready — poll their mounts in
+        for (let i = 0; i < 50 && host.querySelectorAll('p.card').length < 2; i += 1) {
+            await flush();
+        }
+
+        expect(host.querySelectorAll('p.card')).toHaveLength(2);
+        expect(injectedStyles('card')).toHaveLength(1);
+    });
+
+    it('a root destroyed before its mount finishes never injects', async () => {
+        stubTemplates({
+            root: '<template><div data-component="card"></div></template>',
+            card: CARD_SFC,
+        });
+        const app = new Component({element: mountPoint()});
+
+        app.destroy();
+        await app.ready.catch(() => {});
+        await flush();
+
+        expect(injectedStyles()).toHaveLength(0);
     });
 
     it('a css key in the script export warns as unknown and never injects — styles come from <style> only', async () => {

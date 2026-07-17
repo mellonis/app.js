@@ -83,7 +83,7 @@ A tiny reactive framework
 
 ## Styles (per-component CSS)
 
-- A single-file component may also carry one `<style>` after its `<template>` — one `<script>` and one `<style>`, in either order. The CSS is injected into `document.head` once per component type, wrapped in the platform's `@scope` rule, so it applies inside every instance of that component and stops at any nested component — whose own file styles its own subtree:
+- A single-file component may also carry one `<style>` after its `<template>` — one `<script>` and one `<style>`, in either order. The CSS is injected into `document.head` once per component type, wrapped in the platform's `@scope` rule, so it applies inside every instance of that component and stops at any nested single-file component — whose own file styles its own subtree. A template-only include is not a boundary: its markup is styled through the component that includes it, just as it shares that component's data and methods:
 
   ```html
   <!-- templates/card.html -->
