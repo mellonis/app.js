@@ -21,6 +21,18 @@
             value: z.string().min(3, 'At least 3 characters'),
         })).max(5, 'Five contacts at most'),
         agreed: z.literal(true),
+    }).superRefine((form, context) => {
+        // Cross-field rule: choosing a contact-typed channel is a promise —
+        // a matching contact must exist to keep it
+        const needsContact = form.subscribe && form.channel !== 'email';
+
+        if (needsContact && !form.contacts.some(contact => contact.kind === form.channel)) {
+            context.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['channel'],
+                message: `Add a ${form.channel} contact to receive updates there`,
+            });
+        }
     });
 
     new Component({
@@ -57,16 +69,19 @@
 
                 this.data.contacts = [...this.data.contacts, {id: this.data.nextContactId, kind: 'phone', value: ''}];
                 this.data.nextContactId += 1;
+                this.methods.touch();
             },
             contactChanged(event) {
                 const {id, kind, value} = event.detail;
 
                 this.data.contacts = this.data.contacts.map(contact => contact.id === id ? {...contact, kind, value} : contact);
+                this.methods.touch();
             },
             contactRemoved(event) {
                 const {id} = event.detail;
 
                 this.data.contacts = this.data.contacts.filter(contact => contact.id !== id);
+                this.methods.touch();
             },
             // The one method that touches Zod: safeParses a plain snapshot
             // (never the live ghost/data objects) and replaces data.errors

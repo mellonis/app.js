@@ -118,3 +118,72 @@ it('drives the full registration flow: submit-first validation, live fixes, reve
         agreed: true,
     });
 });
+
+it('a contact-typed channel demands a matching contact (cross-field rule)', async () => {
+    const page = browser.newPage();
+
+    await page.goto(`${example.baseUrl}/`);
+    await page.waitUntilComplete();
+
+    const document = page.mainFrame.document;
+    const windowRealm = page.mainFrame.window;
+
+    await pollFor(() => document.querySelector('form') !== null);
+
+    const [nameInput, emailInput] = [...document.querySelectorAll('input')] as unknown as HTMLInputElement[];
+    const form = document.querySelector('form')!;
+
+    nameInput.value = 'Ruslan';
+    nameInput.dispatchEvent(new windowRealm.Event('input'));
+    emailInput.value = 'r@example.com';
+    emailInput.dispatchEvent(new windowRealm.Event('input'));
+
+    const checkboxes = () => [...document.querySelectorAll('input[type="checkbox"]')] as unknown as HTMLInputElement[];
+    const subscribe = checkboxes()[0];
+
+    subscribe.checked = true;
+    subscribe.dispatchEvent(new windowRealm.Event('change'));
+    await pollFor(() => document.querySelector('fieldset') !== null);
+
+    const telegramRadio = ([...document.querySelectorAll('input[type="radio"]')] as unknown as HTMLInputElement[])
+        .find(radio => radio.value === 'telegram')!;
+
+    telegramRadio.checked = true;
+    telegramRadio.dispatchEvent(new windowRealm.Event('change'));
+
+    const agree = checkboxes().at(-1)!;
+
+    agree.checked = true;
+    agree.dispatchEvent(new windowRealm.Event('change'));
+
+    const submitButton = document.querySelector('button[type="submit"]') as unknown as HTMLButtonElement;
+
+    await pollFor(() => submitButton.disabled === false);
+    form.dispatchEvent(new windowRealm.Event('submit'));
+
+    // No telegram contact exists: the cross-field rule must block the submit
+    await pollFor(() => [...document.querySelectorAll('p.error')].some(error => (error.textContent ?? '').includes('telegram')));
+    expect(document.body.textContent).not.toContain('"channel"');
+
+    // Add a telegram contact; the error clears live, then submit succeeds
+    const addButton = ([...document.querySelectorAll('button')] as unknown as HTMLButtonElement[])
+        .find(button => (button.textContent ?? '').toLowerCase().includes('add'))!;
+
+    addButton.click();
+    await pollFor(() => document.querySelector('select') !== null);
+
+    const kindSelect = document.querySelector('select') as unknown as HTMLInputElement;
+
+    kindSelect.value = 'telegram';
+    kindSelect.dispatchEvent(new windowRealm.Event('change'));
+
+    const handleInput = ([...document.querySelectorAll('input')] as unknown as HTMLInputElement[])
+        .find(input => (input.placeholder ?? '').includes('handle'))!;
+
+    handleInput.value = 'mellonis';
+    handleInput.dispatchEvent(new windowRealm.Event('input'));
+
+    await pollFor(() => ![...document.querySelectorAll('p.error')].some(error => (error.textContent ?? '').includes('telegram')));
+    form.dispatchEvent(new windowRealm.Event('submit'));
+    await pollFor(() => (document.body.textContent ?? '').includes('"channel": "telegram"'));
+});
