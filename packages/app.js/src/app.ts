@@ -199,11 +199,12 @@ function collectTextNodes(node: Node, into: Text[] = []): Text[] {
     return into;
 }
 
-const eventNameList = ['click', 'submit'];
 const formControlTagNames = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 const DATA_VALUE_FORM_ONLY_MESSAGE = 'data-value only works on form controls (input, textarea, select) — use ${expression} interpolation to display text';
-const elementsWithDataOnAttributeSelector = eventNameList.map(eventName => `[data-on-${eventName}]`).join(',');
-const dataOnAttributeNameRegExp = new RegExp(`^data-on-(${eventNameList.join('|')})$`);
+// Kebab suffix IS the event type, verbatim — HTML lowercases attribute names,
+// so case-sensitive event types are inexpressible here (irrelevant for
+// element-level DOM events, which are all-lowercase)
+const DATA_ON_ATTRIBUTE_NAME_PATTERN = /^data-on-(.+)$/;
 
 export default class Component {
     declare readonly componentName: string;
@@ -919,11 +920,11 @@ export default class Component {
             boundElements.push(element);
         });
 
-        [root, ...root.querySelectorAll<HTMLElement>(elementsWithDataOnAttributeSelector)].forEach(element => {
+        [root, ...root.querySelectorAll<HTMLElement>('*')].forEach(element => {
             Array.from(element.attributes)
-                .filter(attribute => dataOnAttributeNameRegExp.exec(attribute.name))
+                .filter(attribute => DATA_ON_ATTRIBUTE_NAME_PATTERN.exec(attribute.name))
                 .forEach(attribute => {
-                    const eventName = dataOnAttributeNameRegExp.exec(attribute.name)![1];
+                    const eventName = DATA_ON_ATTRIBUTE_NAME_PATTERN.exec(attribute.name)![1];
                     const methodName = attribute.value;
 
                     element.addEventListener(eventName, (event) => {
@@ -1420,11 +1421,11 @@ export default class Component {
             }, {signal: this.#abortController.signal});
         });
 
-        documentFragment.querySelectorAll<HTMLElement>(elementsWithDataOnAttributeSelector).forEach(element => {
+        documentFragment.querySelectorAll<HTMLElement>('*').forEach(element => {
             Array.from(element.attributes)
-                .filter(attribute => dataOnAttributeNameRegExp.exec(attribute.name))
+                .filter(attribute => DATA_ON_ATTRIBUTE_NAME_PATTERN.exec(attribute.name))
                 .forEach(attribute => {
-                    const eventName = dataOnAttributeNameRegExp.exec(attribute.name)![1];
+                    const eventName = DATA_ON_ATTRIBUTE_NAME_PATTERN.exec(attribute.name)![1];
                     const methodName = attribute.value;
 
                     element.addEventListener(eventName, (event) => {

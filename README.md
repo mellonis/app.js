@@ -12,6 +12,18 @@ A tiny reactive framework
 - Template text supports `${expression}` interpolation (escape a literal with `\${`)
 - Lists render with `data-for` (a bare array expression) plus a required `data-key`; item expressions see `$item`, `$index`, `$array`
 - Arrays update by replacement: `todos = [...todos, item]` — prefer copy-based expressions like `todos.filter(...)` / `[...todos].sort(...)`
+- File inputs are never value-bound — a browser won't let script set `.files`, so `data-value` on `type="file"` is a loud error. Handle the `change` event directly and store only what you need from it:
+
+  ```html
+  <input type="file" data-on-change="pickFile">
+  ```
+
+  ```js
+  pickFile(event) {
+      const [file] = event.target.files;
+      // read/upload; store derived primitives (name, size) in data — not the File itself
+  }
+  ```
 
 # Reactivity
 

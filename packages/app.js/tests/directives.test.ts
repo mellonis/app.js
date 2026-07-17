@@ -356,3 +356,116 @@ describe('data-on-*', () => {
         expect(() => button.click()).not.toThrow();
     });
 });
+
+describe('data-on-*: binds any DOM event by name (issue #20)', () => {
+    it('binds data-on-change on a select', async () => {
+        stubTemplates({root: '<template><select data-on-change="picked"><option value="a">A</option><option value="b">B</option></select></template>'});
+        const host = mountPoint();
+        const picked = vi.fn();
+        new Component({element: host, methods: {picked}});
+
+        const select = await vi.waitFor(() => {
+            const el = host.querySelector('select');
+            expect(el).not.toBeNull();
+            return el!;
+        });
+
+        select.dispatchEvent(new Event('change'));
+
+        expect(picked).toHaveBeenCalledTimes(1);
+    });
+
+    it('binds data-on-keydown on an input', async () => {
+        stubTemplates({root: '<template><input data-on-keydown="keyed"></template>'});
+        const host = mountPoint();
+        const keyed = vi.fn();
+        new Component({element: host, methods: {keyed}});
+
+        const input = await vi.waitFor(() => {
+            const el = host.querySelector('input');
+            expect(el).not.toBeNull();
+            return el!;
+        });
+
+        input.dispatchEvent(new KeyboardEvent('keydown'));
+
+        expect(keyed).toHaveBeenCalledTimes(1);
+    });
+
+    it('binds data-on-input on an input (previously silently ignored)', async () => {
+        stubTemplates({root: '<template><input data-on-input="typed"></template>'});
+        const host = mountPoint();
+        const typed = vi.fn();
+        new Component({element: host, methods: {typed}});
+
+        const input = await vi.waitFor(() => {
+            const el = host.querySelector('input');
+            expect(el).not.toBeNull();
+            return el!;
+        });
+
+        input.dispatchEvent(new Event('input'));
+
+        expect(typed).toHaveBeenCalledTimes(1);
+    });
+
+    it('fires both handlers when an element carries two data-on-* attributes', async () => {
+        stubTemplates({root: '<template><button data-on-click="onClick" data-on-mouseenter="onEnter">go</button></template>'});
+        const host = mountPoint();
+        const onClick = vi.fn();
+        const onEnter = vi.fn();
+        new Component({element: host, methods: {onClick, onEnter}});
+
+        const button = await vi.waitFor(() => {
+            const el = host.querySelector('button');
+            expect(el).not.toBeNull();
+            return el!;
+        });
+
+        button.dispatchEvent(new Event('mouseenter'));
+        button.click();
+
+        expect(onEnter).toHaveBeenCalledTimes(1);
+        expect(onClick).toHaveBeenCalledTimes(1);
+    });
+
+    it('an in-item data-on-mouseenter receives (event, item, index)', async () => {
+        stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id" data-on-mouseenter="hover">${$item.label}</li></ul></template>'});
+        const host = mountPoint();
+        const calls: Array<{item: unknown; index: number | undefined}> = [];
+        const app = new Component({
+            element: host,
+            data: {items: [{id: 1, label: 'a'}, {id: 2, label: 'b'}]},
+            methods: {
+                hover(event: Event, item?: unknown, index?: number) {
+                    calls.push({item, index});
+                },
+            },
+        });
+        await app.ready;
+
+        const listItems = host.querySelectorAll('li');
+        listItems[1].dispatchEvent(new Event('mouseenter'));
+
+        expect(calls).toEqual([{item: {id: 2, label: 'b'}, index: 1}]);
+    });
+
+    it('a typo in the event name binds silently and never fires (documents the trade-off)', async () => {
+        stubTemplates({root: '<template><button data-on-clikc="hit">typo</button><button data-on-click="hit">correct</button></template>'});
+        const host = mountPoint();
+        const hit = vi.fn();
+        new Component({element: host, methods: {hit}});
+
+        const buttons = await vi.waitFor(() => {
+            const els = host.querySelectorAll('button');
+            expect(els).toHaveLength(2);
+            return [...els] as HTMLButtonElement[];
+        });
+
+        buttons[0].click();
+        expect(hit).not.toHaveBeenCalled();
+
+        buttons[1].click();
+        expect(hit).toHaveBeenCalledTimes(1);
+    });
+});
