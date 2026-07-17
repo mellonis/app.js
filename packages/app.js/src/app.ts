@@ -583,15 +583,22 @@ export default class Component {
     }
 
     // Every binding kind's own map still holds the live entry for its
-    // element/node — this is the one place that reaches across all of them
-    #bindingFor(boundElement: HTMLElement | Text): TrackedBinding | undefined {
+    // element/node — this is the one place that reaches across all of them.
+    // An element can carry more than one directive (show-if AND display-if
+    // together, say) — every match is returned, not just the first, so a
+    // caller that dirties or evicts never silently drops one of them
+    #bindingsFor(boundElement: HTMLElement | Text): TrackedBinding[] {
         if (boundElement instanceof Text) {
-            return this.#textNodeToDataMap.get(boundElement)?.binding;
+            const binding = this.#textNodeToDataMap.get(boundElement)?.binding;
+
+            return binding ? [binding] : [];
         }
 
-        return this.#showIfElementToDataMap.get(boundElement)?.binding
-            ?? this.#displayIfElementToDataMap.get(boundElement)?.binding
-            ?? this.#valueElementToDataMap.get(boundElement)?.binding;
+        return [
+            this.#showIfElementToDataMap.get(boundElement)?.binding,
+            this.#displayIfElementToDataMap.get(boundElement)?.binding,
+            this.#valueElementToDataMap.get(boundElement)?.binding,
+        ].filter((binding): binding is TrackedBinding => binding !== undefined);
     }
 
     // Unsubscribes an evicted binding from every path it was reading and
@@ -1042,11 +1049,7 @@ export default class Component {
 
             block.entries.forEach(entry => {
                 entry.boundElements.forEach(boundElement => {
-                    const binding = this.#bindingFor(boundElement);
-
-                    if (binding) {
-                        this.#dirtyBindings.add(binding);
-                    }
+                    this.#bindingsFor(boundElement).forEach(binding => this.#dirtyBindings.add(binding));
                 });
 
                 if (entry.child) {
@@ -1128,7 +1131,7 @@ export default class Component {
             }
 
             entry.boundElements.forEach(boundElement => {
-                const binding = this.#bindingFor(boundElement);
+                const bindings = this.#bindingsFor(boundElement);
 
                 if (boundElement instanceof Text) {
                     this.#textNodeToDataMap.delete(boundElement);
@@ -1138,9 +1141,7 @@ export default class Component {
                     this.#displayIfElementToDataMap.delete(boundElement);
                 }
 
-                if (binding) {
-                    this.#evictBinding(binding);
-                }
+                bindings.forEach(binding => this.#evictBinding(binding));
             });
 
             if (entry.child) {

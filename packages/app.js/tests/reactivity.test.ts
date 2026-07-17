@@ -369,6 +369,24 @@ describe('lists under tracking (phase A)', () => {
         expect(host.querySelectorAll('li')).toHaveLength(1);
         expect(errorSpy).not.toHaveBeenCalled();
     });
+
+    it('show-if and display-if on one item element both update on reconcile (multi-binding element)', async () => {
+        stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id"><span data-show-if="$item.a" data-display-if="$item.b">${$item.label}</span></li></ul></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {items: [{id: 1, a: true, b: true, label: 'x'}]}});
+        await app.ready;
+
+        const span = host.querySelector('span') as HTMLElement;
+
+        expect(span.style.display).toBe('');
+
+        app.data.items = [{id: 1, a: true, b: false, label: 'x'}];
+
+        await app.updated();
+
+        expect(host.querySelector('span')).not.toBeNull();
+        expect((host.querySelector('span') as HTMLElement).style.display).toBe('none');
+    });
 });
 
 describe('batching (phase B)', () => {
