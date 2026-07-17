@@ -245,12 +245,28 @@ function isMeaningfulNode(node: Node): boolean {
 // reading a node the PARENT wired) has nothing else to consult
 const trackedInterpolationTextNodes = new WeakSet<Text>();
 
+// Directive anchors are comments standing in for LIVE content — a hidden
+// data-show-if element or a data-for block's insertion range. For "was
+// content provided" questions they must count, or a projected block whose
+// element was extracted before distribution would silently read as empty
+const directiveAnchorComments = new WeakSet<Comment>();
+
+function trackDirectiveAnchor(comment: Comment): Comment {
+    directiveAnchorComments.add(comment);
+
+    return comment;
+}
+
 // A bound ${} interpolation starts life as an EMPTY text node — its first
 // drain hasn't run yet at distribution time — so a blank-content check would
 // misread live projected text as absent. Presence of the binding is what
 // "content was provided" means, not its value at this snapshot in time.
 function isContentNode(node: Node): boolean {
     if (node instanceof Text && trackedInterpolationTextNodes.has(node)) {
+        return true;
+    }
+
+    if (node instanceof Comment && directiveAnchorComments.has(node)) {
         return true;
     }
 
@@ -916,6 +932,9 @@ export default class Component {
         const anchorStart = document.createComment(' data-for start ');
         const anchorEnd = document.createComment(' data-for end ');
 
+        directiveAnchorComments.add(anchorStart);
+        directiveAnchorComments.add(anchorEnd);
+
         element.replaceWith(anchorStart, anchorEnd);
         element.removeAttribute('data-for');
         element.removeAttribute('data-key');
@@ -971,7 +990,7 @@ export default class Component {
             }
 
             this.#showIfElementToDataMap.set(element, {
-                anchor: document.createComment(' an anchor comment '),
+                anchor: trackDirectiveAnchor(document.createComment(' an anchor comment ')),
                 expression: element.dataset['showIf']!,
                 isHidden: false,
                 scopeRef,
@@ -1718,7 +1737,7 @@ export default class Component {
             }
 
             this.#showIfElementToDataMap.set(element, {
-                anchor: document.createComment(' an anchor comment '),
+                anchor: trackDirectiveAnchor(document.createComment(' an anchor comment ')),
                 expression: element.dataset['showIf']!,
                 isHidden: false,
                 binding: {kind: 'show', element, dependencies: new Set()},

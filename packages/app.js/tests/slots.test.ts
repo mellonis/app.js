@@ -443,3 +443,51 @@ export default {
         expect(document.querySelector('em')?.textContent).toBe('banner-body');
     });
 });
+
+it('a bare projected data-for fills the slot and reconciles (anchors count as content)', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    stubTemplates({
+        root: '<template><div data-component="box"><p data-for="items" data-key="$item">${$item}</p></div></template>',
+        box: `<template><section><slot>FALLBACK</slot></section></template>
+<script>export default {};</script>`,
+    });
+    const host = mountPoint();
+    const app = new Component({element: host, data: {items: [1, 2]}});
+    await app.ready;
+    await settle(app);
+
+    expect(host.textContent).not.toContain('FALLBACK');
+    expect([...host.querySelectorAll('p')].map(p => p.textContent)).toEqual(['1', '2']);
+
+    app.data.items = [1, 2, 3];
+
+    await settle(app);
+
+    expect([...host.querySelectorAll('p')].map(p => p.textContent)).toEqual(['1', '2', '3']);
+    expect(errorSpy).not.toHaveBeenCalled();
+});
+
+it('a bare projected data-show-if hidden at distribution can still appear later', async () => {
+    stubTemplates({
+        // The template-only include mounts fast and drains the parent early,
+        // hiding the projected span behind its anchor before the slow child
+        // component's definition resolves
+        root: '<template><div data-component="plain"></div><div data-component="box"><span data-show-if="visible">peek</span></div></template>',
+        plain: '<template><i>inc</i></template>',
+        box: `<template><section><slot>FALLBACK</slot></section></template>
+<script>export default {};</script>`,
+    });
+    const host = mountPoint();
+    const app = new Component({element: host, data: {visible: false}});
+    await app.ready;
+    await settle(app);
+
+    expect(host.textContent).not.toContain('FALLBACK');
+
+    app.data.visible = true;
+
+    await settle(app);
+
+    expect(host.querySelector('section span')?.textContent).toBe('peek');
+});

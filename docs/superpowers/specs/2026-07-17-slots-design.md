@@ -81,6 +81,19 @@ over it, not a scope change.
    comments are ignorable — a formatted-but-empty wrapper is NOT content, and
    whitespace alone never triggers the missing-default-slot error.
 
+### Implementation-review amendments (final round)
+
+- **Directive anchors count as provided content** wherever emptiness is judged:
+  a projected `data-for`'s anchor pair, or a hidden `data-show-if` element's
+  anchor, IS live content standing behind a comment — treating comments as
+  ignorable there silently swallowed a bare projected block into the fallback
+  path (probe-confirmed). Tracked via the same module-level WeakSet pattern the
+  interpolation text nodes use.
+- **"Wrapper content" means a `data-component` wrapper**: the slotless-content
+  retirement never applies to the true root mount (host-page placeholder HTML
+  is not projection) or to template-only includes (§E — they keep
+  precede-and-mix).
+
 ## B. Why migration is safe (the two maintainer probes, resolved)
 
 - **Projected content with `data-show-if`/`data-for` inside it:** bindings key
