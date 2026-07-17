@@ -26,6 +26,12 @@ it('projects, falls back, and keeps projected content reactive through the real 
 
     await pollFor(() => document.querySelectorAll('.card').length === 3);
 
+    // The card component's own CSS arrived in the page head, once, scoped
+    const injectedStyle = document.head.querySelector('style[data-component-style="card"]');
+
+    expect(injectedStyle).not.toBeNull();
+    expect(injectedStyle!.textContent).toContain('@scope ([data-component="card"]) to (:scope [data-component-root] > *) {');
+
     const [about, guests, empty] = [...document.querySelectorAll('.card')];
 
     // Named routing replaced the title fallback; the empty card kept both fallbacks

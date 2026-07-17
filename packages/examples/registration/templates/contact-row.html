@@ -7,6 +7,13 @@
     <p class="error" data-display-if="error">${error}</p>
     <button type="button" data-on-click="remove">Remove</button>
 </template>
+<style>
+    /* The component wrapper is a real box; make it transparent to layout so
+       the row's own flex children sit directly among the <li>'s children */
+    :scope {
+        display: contents;
+    }
+</style>
 <script>
     export default {
         data: () => ({kind: 'phone', value: ''}),

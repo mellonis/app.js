@@ -4,26 +4,3 @@ body {
     max-width: 32rem;
     padding: 0 1rem;
 }
-
-.card {
-    border: 1px solid #ddd;
-    border-radius: 0.5rem;
-    padding: 1rem;
-    margin-bottom: 1rem;
-}
-
-.card h2 {
-    margin-top: 0;
-}
-
-.card-body > :last-child {
-    margin-bottom: 0;
-}
-
-.card ul {
-    padding-left: 1.25rem;
-}
-
-.card li button {
-    margin-left: 0.5rem;
-}

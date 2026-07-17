@@ -81,6 +81,28 @@ A tiny reactive framework
 
 - The cards example runs projection end to end: one card component filled three different ways — both slots projected, reactive parent-owned content, and nothing at all (fallbacks).
 
+## Styles (per-component CSS)
+
+- A single-file component may also carry one `<style>` after its `<template>` — one `<script>` and one `<style>`, in either order. The CSS is injected into `document.head` once per component type, wrapped in the platform's `@scope` rule, so it applies inside every instance of that component and stops at any nested component — whose own file styles its own subtree:
+
+  ```html
+  <!-- templates/card.html -->
+  <template>
+      <section class="card">...</section>
+  </template>
+  <style>
+      .card { border: 1px solid #ddd; }
+      :scope { display: block; }
+  </style>
+  <script>export default {};</script>
+  ```
+
+- `:scope { }` selects the component's own wrapper element (each instance's `data-component` element). Prefer this explicit form over bare declarations — it reads as a rule, and its 0-1-0 specificity matches the page-level attribute selector it replaces.
+- Scoping follows geometry, not ownership: content the parent projects into a child's slot relocates inside the child's subtree, so the parent's scoped rules no longer reach it — the child's scoped rules do.
+- A scoped rule beats an equal-specificity page rule regardless of source order: scoped rules have finite proximity, page rules infinite.
+- At-rules ride along verbatim: `@media` nests fine; `@keyframes` and `@font-face` are valid, but their names are global — collisions across components are the author's to avoid; `@import` is silently invalid mid-sheet.
+- Template-only includes have no style vocabulary — a `<style>` in a scriptless file is a loud error, and so is one in the root component's own file: root styles belong to the host page's stylesheet. One naming caveat: don't give an SFC the root's `componentName`, and don't mount the root on an element whose `data-component` names an SFC — the root mount would become a scoping root for that type's styles page-wide.
+
 # Where to start
 
 The examples form a ladder — each one introduces the next handful of ideas:
@@ -134,7 +156,15 @@ npm test            # framework unit suite + examples smoke suite
 
 # Styling component wrappers
 
-A `data-component` element is a real box in layout, which gets in the way inside flex or grid containers. Make a wrapper transparent to layout with:
+A `data-component` element is a real box in layout, which gets in the way inside flex or grid containers. A single-file component can make its own wrapper transparent from its `<style>` — the recommended form, since the transparency then ships with the component:
+
+```css
+:scope {
+    display: contents;
+}
+```
+
+For template-only includes (which have no style vocabulary) and for components you don't own, the page-level rule does the same job:
 
 ```css
 [data-component="widget"] {
@@ -142,4 +172,4 @@ A `data-component` element is a real box in layout, which gets in the way inside
 }
 ```
 
-Two caveats: the wrapper's own background/border/padding stop rendering, and the rule should target specific components — the app stamps `data-component` on its root element (often `<body>`), which must keep its box.
+Two caveats: the wrapper's own background/border/padding stop rendering, and the page-level rule should target specific components — the app stamps `data-component` on its root element (often `<body>`), which must keep its box; the root component's file must not do this either.

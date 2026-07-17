@@ -56,12 +56,6 @@ pre {
     overflow-x: auto;
 }
 
-/* The component wrapper is a real box; make it transparent to layout so
-   the row's own flex children sit directly among the <li>'s children */
-[data-component="contact-row"] {
-    display: contents;
-}
-
 .card {
     border: 1px solid #ddd;
     border-radius: 0.5rem;

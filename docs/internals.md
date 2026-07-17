@@ -130,6 +130,12 @@ ride a dedicated per-instance `EventTarget` — never the DOM, never bubbling.
 Template-only files stay simple includes sharing the parent's scope: adding a
 `<script>` is the act that gives a component its own brain.
 
+Definition loading also carries CSS: a `<style>` sibling in the file lands on
+the cached definition, and the first instance of the type injects one
+`@scope`-wrapped `<style>` element into `document.head`. Injection is
+type-level, like the caches themselves — `clearTemplateCache()` evicts the
+injected elements, `destroy()` leaves them alone.
+
 Read `#mountChildOrInclude`, `#instantiate`, and `#reseedChild` (app.ts) with
 the components section of the README beside them.
 
