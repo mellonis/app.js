@@ -7,8 +7,12 @@
     "counter": "node serve.mjs counter",
     "form": "node serve.mjs form",
     "todo": "node serve.mjs todo",
+    "registration": "node serve.mjs registration",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "zod": "3.24.4"
+  }
 }

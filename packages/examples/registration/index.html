@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Registration — app.js example</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+    import Component from '/app.js';
+    import { z } from '/zod.js';
+
+    const schema = z.object({
+        name: z.string().min(2, 'At least 2 characters'),
+        email: z.string().email('Not an email'),
+        subscribe: z.boolean(),
+        channel: z.enum(['email', 'phone', 'telegram']),
+        contacts: z.array(z.object({
+            kind: z.enum(['phone', 'telegram']),
+            value: z.string().min(3, 'At least 3 characters'),
+        })).max(5, 'Five contacts at most'),
+        agreed: z.literal(true),
+    });
+
+    new Component({
+        element: document.querySelector('#app'),
+        data: {
+            name: '',
+            email: '',
+            subscribe: false,
+            channel: 'email',
+            contacts: [],
+            nextContactId: 1,
+            agreed: false,
+            errors: [],
+            submitted: false,
+            done: false,
+        },
+        methods: {
+            errorFor(field) {
+                const match = this.data.errors.find(error => error.field === field);
+
+                return match ? match.message : '';
+            },
+            touch() {
+                if (this.data.submitted) {
+                    this.methods.validate();
+                }
+            },
+            addContact(event) {
+                event.preventDefault();
+
+                if (this.data.contacts.length >= 5) {
+                    return;
+                }
+
+                this.data.contacts = [...this.data.contacts, {id: this.data.nextContactId, kind: 'phone', value: ''}];
+                this.data.nextContactId += 1;
+            },
+            contactChanged(event) {
+                const {id, kind, value} = event.detail;
+
+                this.data.contacts = this.data.contacts.map(contact => contact.id === id ? {...contact, kind, value} : contact);
+            },
+            contactRemoved(event) {
+                const {id} = event.detail;
+
+                this.data.contacts = this.data.contacts.filter(contact => contact.id !== id);
+            },
+            // The one method that touches Zod: safeParses a plain snapshot
+            // (never the live ghost/data objects) and replaces data.errors
+            // wholesale — the array-leaf shape non-extensible ghosts allow.
+            validate() {
+                const snapshot = {
+                    name: this.data.name,
+                    email: this.data.email,
+                    subscribe: this.data.subscribe,
+                    channel: this.data.channel,
+                    contacts: this.data.contacts.map(contact => ({kind: contact.kind, value: contact.value})),
+                    agreed: this.data.agreed,
+                };
+                const result = schema.safeParse(snapshot);
+
+                if (result.success) {
+                    this.data.errors = [];
+
+                    return true;
+                }
+
+                this.data.errors = result.error.issues.map(issue => {
+                    if (issue.path[0] === 'contacts' && typeof issue.path[1] === 'number') {
+                        const row = this.data.contacts[issue.path[1]];
+
+                        return {field: `contact:${row.id}`, message: issue.message};
+                    }
+
+                    return {field: String(issue.path[0]), message: issue.message};
+                });
+
+                return false;
+            },
+            submit(event) {
+                event.preventDefault();
+
+                const valid = this.methods.validate();
+
+                this.data.submitted = true;
+
+                if (valid) {
+                    this.data.done = true;
+                }
+            },
+            form() {
+                return {
+                    name: this.data.name,
+                    email: this.data.email,
+                    subscribe: this.data.subscribe,
+                    channel: this.data.channel,
+                    contacts: this.data.contacts.map(contact => ({kind: contact.kind, value: contact.value})),
+                    agreed: this.data.agreed,
+                };
+            },
+            pretty(value) {
+                return JSON.stringify(value, null, 2);
+            },
+        },
+    });
+</script>
+</body>
+</html>

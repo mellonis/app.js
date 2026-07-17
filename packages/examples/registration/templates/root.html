@@ -1,0 +1,55 @@
+<template>
+    <h1>Create your account</h1>
+    <form data-on-submit="submit" data-show-if="!done">
+        <section>
+            <h2>Basics</h2>
+            <label>
+                Name
+                <input data-value="name" data-on-input="touch">
+            </label>
+            <p class="error" data-display-if="errorFor('name')">${errorFor('name')}</p>
+
+            <label>
+                Email
+                <input data-value="email" data-on-input="touch">
+            </label>
+            <p class="error" data-display-if="errorFor('email')">${errorFor('email')}</p>
+        </section>
+
+        <section>
+            <label><input type="checkbox" data-value="subscribe"> Send me product updates</label>
+
+            <fieldset data-show-if="subscribe">
+                <legend>Preferred contact channel</legend>
+                <label><input type="radio" name="channel" value="email" data-value="channel"> Email</label>
+                <label><input type="radio" name="channel" value="phone" data-value="channel"> Phone</label>
+                <label><input type="radio" name="channel" value="telegram" data-value="channel"> Telegram</label>
+            </fieldset>
+        </section>
+
+        <section>
+            <h2>Contacts</h2>
+            <ul>
+                <li data-for="contacts" data-key="$item.id">
+                    <div data-component="contact-row"
+                         data-component-prop-contact="$item"
+                         data-component-prop-error="errorFor('contact:' + $item.id)"
+                         data-component-on-changed="contactChanged"
+                         data-component-on-removed="contactRemoved"></div>
+                </li>
+            </ul>
+            <button type="button" data-on-click="addContact">Add contact</button>
+        </section>
+
+        <section>
+            <label><input type="checkbox" data-value="agreed"> I agree to the terms</label>
+            <button type="submit" data-disabled-if="!agreed">Submit</button>
+        </section>
+    </form>
+
+    <div data-show-if="done">
+        <h2>You're in.</h2>
+        <p>Here's what we received:</p>
+        <pre>${form() |> pretty}</pre>
+    </div>
+</template>

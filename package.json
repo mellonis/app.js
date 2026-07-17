@@ -12,7 +12,8 @@
     "test": "npm run build && npm test --workspaces --if-present",
     "ex:counter": "npm run counter -w examples",
     "ex:form": "npm run form -w examples",
-    "ex:todo": "npm run todo -w examples"
+    "ex:todo": "npm run todo -w examples",
+    "ex:registration": "npm run registration -w examples"
   },
   "repository": {
     "type": "git",

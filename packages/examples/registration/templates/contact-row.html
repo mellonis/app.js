@@ -1,0 +1,36 @@
+<template>
+    <select data-value="kind" data-on-change="notifyChange">
+        <option value="phone">Phone</option>
+        <option value="telegram">Telegram</option>
+    </select>
+    <input data-value="value" data-on-input="notifyChange" placeholder="Phone or handle">
+    <p class="error" data-display-if="error">${error}</p>
+    <button type="button" data-on-click="remove">Remove</button>
+</template>
+<script>
+    export default {
+        data: () => ({kind: 'phone', value: ''}),
+        methods: {
+            notifyChange() {
+                this.events.emit('changed', {id: this.props.contact.id, kind: this.data.kind, value: this.data.value});
+            },
+            remove() {
+                this.events.emit('removed', {id: this.props.contact.id});
+            },
+        },
+        mounted() {
+            // Local drafts: in-item data-value is banned by design, and a
+            // form control can't bind a prop directly either (props are
+            // read-only inputs) — so the row keeps its own copy of the
+            // fields, seeded from props here and kept in sync afterward
+            // through the same props event every prop re-seed dispatches.
+            const seedFromProps = () => {
+                this.data.kind = this.props.contact.kind;
+                this.data.value = this.props.contact.value;
+            };
+
+            seedFromProps();
+            this.events.on('props', seedFromProps);
+        },
+    };
+</script>
