@@ -297,6 +297,46 @@ describe('data-for: item scope and handlers', () => {
         expect(received[1].index).toBe(1);
     });
 
+    it('an evicted item clone\'s listener is severed even though the parent is still alive (issue #28)', async () => {
+        const hit = vi.fn();
+
+        stubTemplates({root: '<template><div><button data-for="items" data-key="$item.id" data-on-click="hit">${$item.label}</button></div></template>'});
+
+        const host = mountPoint();
+        const app = new Component({
+            element: host,
+            data: {items: [{id: 1, label: 'a'}, {id: 2, label: 'b'}]},
+            methods: {hit},
+        });
+
+        await app.ready;
+
+        const buttons = [...host.querySelectorAll('button')];
+        const buttonA = buttons.find(b => b.textContent === 'a')!;
+        const buttonB = buttons.find(b => b.textContent === 'b')!;
+
+        // Before eviction: the clone's listener fires normally
+        buttonA.dispatchEvent(new Event('click'));
+        expect(hit).toHaveBeenCalledTimes(1);
+
+        // Evict item "a" — its clone is removed from block.entries and from
+        // the DOM, but we held onto the detached node directly
+        app.data.items = [{id: 2, label: 'b'}];
+        await app.updated();
+
+        expect(buttonA.isConnected).toBe(false);
+
+        // The detached clone's listener must be dead: dispatching on it
+        // directly must invoke nothing, even though the parent component is
+        // still very much alive
+        buttonA.dispatchEvent(new Event('click'));
+        expect(hit).toHaveBeenCalledTimes(1);
+
+        // The parent being alive is proven by the surviving clone still firing
+        buttonB.dispatchEvent(new Event('click'));
+        expect(hit).toHaveBeenCalledTimes(2);
+    });
+
     it('handlers outside blocks still receive only a meaningful event', async () => {
         let sawItem: unknown = 'sentinel';
 

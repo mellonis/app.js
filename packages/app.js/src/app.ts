@@ -69,6 +69,11 @@ interface ForBlockEntry {
     index: number;
     key: string;
     boundElements: (HTMLElement | Text)[];
+    // Per-entry lifetime for the clone's data-on-* listeners, chained to the
+    // parent's signal — the eviction sweep aborts it directly, so a listener
+    // dies with its entry instead of lingering until the whole component is
+    // destroyed
+    listenerController: AbortController;
     child?: Component;
 }
 
@@ -963,6 +968,11 @@ export default class Component {
             boundElements.push(element);
         });
 
+        // The entry already exists (set by the caller before wiring) — its
+        // controller is this clone's own lifetime, so an eviction severs
+        // these listeners without waiting for the whole component to die
+        const listenerSignal = block.entries.get(key)!.listenerController.signal;
+
         [root, ...root.querySelectorAll<HTMLElement>('*')].forEach(element => {
             Array.from(element.attributes)
                 .filter(attribute => DATA_ON_ATTRIBUTE_NAME_PATTERN.exec(attribute.name))
@@ -978,7 +988,7 @@ export default class Component {
                         const entry = block.entries.get(key);
 
                         this.#handleEvent({methodName, event, item: entry?.item, index: entry?.index});
-                    }, {signal: this.#abortController.signal});
+                    }, {signal: listenerSignal});
                 });
         });
 
@@ -1159,8 +1169,18 @@ export default class Component {
                 entry.index = index;
             } else {
                 const element = block.templateElement.cloneNode(true) as HTMLElement;
+                // Chained to the parent's lifetime, same pattern as
+                // #wireComponentEvents' per-wiring controller — but there is
+                // no child signal to chain here, only the parent's
+                const listenerController = new AbortController();
 
-                entry = {element, item, index, key, boundElements: []};
+                if (this.#abortController.signal.aborted) {
+                    listenerController.abort();
+                } else {
+                    this.#abortController.signal.addEventListener('abort', () => listenerController.abort(), {once: true});
+                }
+
+                entry = {element, item, index, key, boundElements: [], listenerController};
                 block.entries.set(key, entry);
                 entry.boundElements = this.#wireItemElement(element, block, key);
             }
@@ -1195,6 +1215,10 @@ export default class Component {
 
                 bindings.forEach(binding => this.#evictBinding(binding));
             });
+
+            // Severs this clone's data-on-* listeners now — they must not
+            // outlive their entry just because the parent is still alive
+            entry.listenerController.abort();
 
             if (entry.child) {
                 const propRecord = this.#propBindings.get(entry.child);
