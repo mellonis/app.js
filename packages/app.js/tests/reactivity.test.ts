@@ -223,7 +223,7 @@ describe('dependency tracking (phase A: synchronous flush)', () => {
         expect(errorSpy.mock.calls.flat().join(' ')).toContain('loop');
     });
 
-    it('a derived write to the input\'s own path rewrites the input (first-visit consumption)', async () => {
+    it('a derived write to the input\'s own path rewrites the input', async () => {
         stubTemplates({root: '<template><input data-value="draft"><p>${draft |> up}</p></template>'});
         const host = mountPoint();
         const app = new Component({
