@@ -1387,6 +1387,12 @@ export default class Component {
                     componentWrapper.appendChild(documentFragment.childNodes[0]);
                 }
 
+                // The initial mount renders synchronously: mark every wired
+                // binding dirty, then drain once — that first drain IS the
+                // collection pass for every binding's dependency set
+                this.#markAllBindingsDirty();
+                this.#drain();
+
                 if (childFailure) {
                     // Mount what succeeded first, then surface the first child
                     // failure through ready — a broken child is loud, but its
@@ -1412,8 +1418,20 @@ export default class Component {
 
         const documentFragment = templateElement.content;
 
-        documentFragment.querySelectorAll<HTMLElement>('[data-for]').forEach(element => {
-            if (!documentFragment.contains(element)) {
+        return this.#wireFragment(documentFragment, parentComponentNameList)
+            .then(childFailure => ({documentFragment, childFailure}));
+    }
+
+    // Wires an arbitrary detached subtree exactly as the template root is
+    // wired: every directive sweep, then child/include mounting. Callable on
+    // any fragment — the template root's own content today, a lazily-wired
+    // fallback fragment tomorrow. Resolves to the first child/include
+    // rejection (or undefined) once every mount attempt has settled; never
+    // marks bindings dirty or drains — that first collection pass is the
+    // caller's job, run once ALL wiring for the mount is done.
+    #wireFragment(fragment: DocumentFragment, parentComponentNameList: string[]): Promise<PromiseRejectedResult | undefined> {
+        fragment.querySelectorAll<HTMLElement>('[data-for]').forEach(element => {
+            if (!fragment.contains(element)) {
                 // An ancestor data-for errored and was removed with its subtree
                 return;
             }
@@ -1422,9 +1440,9 @@ export default class Component {
         });
 
         // After extraction, so block subtrees are wired per clone instead
-        this.#wireTextInterpolations(documentFragment);
+        this.#wireTextInterpolations(fragment);
 
-        documentFragment.querySelectorAll<HTMLElement>('[data-show-if]').forEach(element => {
+        fragment.querySelectorAll<HTMLElement>('[data-show-if]').forEach(element => {
             if (!this.#compileAtWiring(element.dataset['showIf']!, element)) {
                 return;
             }
@@ -1437,7 +1455,7 @@ export default class Component {
             });
         });
 
-        documentFragment.querySelectorAll<HTMLElement>('[data-display-if]').forEach(element => {
+        fragment.querySelectorAll<HTMLElement>('[data-display-if]').forEach(element => {
             if (!this.#compileAtWiring(element.dataset['displayIf']!, element)) {
                 return;
             }
@@ -1449,7 +1467,7 @@ export default class Component {
             });
         });
 
-        documentFragment.querySelectorAll<HTMLElement>('[data-disabled-if]').forEach(element => {
+        fragment.querySelectorAll<HTMLElement>('[data-disabled-if]').forEach(element => {
             if (!this.#compileAtWiring(element.dataset['disabledIf']!, element)) {
                 return;
             }
@@ -1466,7 +1484,7 @@ export default class Component {
             });
         });
 
-        documentFragment.querySelectorAll<HTMLElement>('[data-ref]').forEach(element => {
+        fragment.querySelectorAll<HTMLElement>('[data-ref]').forEach(element => {
             const name = element.dataset['ref']!;
 
             if (Object.hasOwn(this.#refsBacking, name)) {
@@ -1478,7 +1496,7 @@ export default class Component {
             this.#refsBacking[name] = element;
         });
 
-        documentFragment.querySelectorAll<HTMLElement>('[data-value]').forEach(element => {
+        fragment.querySelectorAll<HTMLElement>('[data-value]').forEach(element => {
             if (!this.#compileAtWiring(element.dataset['value']!, element)) {
                 return;
             }
@@ -1533,7 +1551,7 @@ export default class Component {
             }, {signal: this.#abortController.signal});
         });
 
-        documentFragment.querySelectorAll<HTMLElement>('*').forEach(element => {
+        fragment.querySelectorAll<HTMLElement>('*').forEach(element => {
             Array.from(element.attributes)
                 .filter(attribute => DATA_ON_ATTRIBUTE_NAME_PATTERN.exec(attribute.name))
                 .forEach(attribute => {
@@ -1550,7 +1568,7 @@ export default class Component {
                 });
         });
 
-        const subComponentPromiseList = Array.from(documentFragment.querySelectorAll<HTMLElement>('[data-component]')).map(element => {
+        const subComponentPromiseList = Array.from(fragment.querySelectorAll<HTMLElement>('[data-component]')).map(element => {
             if (formControlTagNames.has(element.tagName)) {
                 console.error('data-component cannot be placed on a form control', element);
 
@@ -1561,21 +1579,10 @@ export default class Component {
         });
 
         // allSettled, not all: a broken child must not abort the mount of its
-        // siblings — the first failure is carried out so #loadComponent can
+        // siblings — the first failure is carried out so the caller can
         // append the fragment before rejecting ready with it
         return Promise.allSettled(subComponentPromiseList)
-            .then(results => {
-                // The initial mount renders synchronously: mark every wired
-                // binding dirty, then drain once — that first drain IS the
-                // collection pass for every binding's dependency set
-                this.#markAllBindingsDirty();
-                this.#drain();
-
-                return {
-                    documentFragment,
-                    childFailure: results.find((result): result is PromiseRejectedResult => result.status === 'rejected'),
-                };
-            });
+            .then(results => results.find((result): result is PromiseRejectedResult => result.status === 'rejected'));
     }
 
     #collectProps(element: HTMLElement, scope?: Record<string, unknown>): {seeds: Record<string, unknown>; names: string[]; bindings: PropBinding[]; failedSeedKinds: Set<string>} {
