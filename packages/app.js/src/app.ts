@@ -141,6 +141,7 @@ interface ComponentDefinition {
     data?: () => Record<string, unknown>;
     methods?: Record<string, ComponentMethod>;
     mounted?: (this: Component) => void | (() => void);
+    css?: string;
 }
 
 interface InternalConstruction {
@@ -337,6 +338,10 @@ export default class Component {
 
     static readonly #templateNameToTemplatePromiseMap = new Map<string, Promise<string>>();
 
+    // One injected <style> per component TYPE, keyed by name like the
+    // template and definition caches — and cleared with them
+    static readonly #componentNameToStyleElementMap = new Map<string, HTMLStyleElement>();
+
     constructor({element = document.body, componentName = 'root', data = {}, methods = {}}: ComponentOptions = {}) {
         const internal = Component.#constructionContext;
 
@@ -431,6 +436,13 @@ export default class Component {
         Object.defineProperty(this, 'refs', {enumerable: true, value: this.#refsBacking});
 
         element.dataset['component'] = this.componentName;
+        // Boundary marker for injected component styles: every constructed
+        // instance is stamped, so a scoped rule stops at nested component
+        // wrappers. Template-only includes never construct and are never
+        // boundaries. The root's own stamp can never act as one either —
+        // the limit selector matches strict descendants of a scoping root
+        // only, and the mount element is an ancestor of every scope.
+        element.dataset['componentRoot'] = '';
         Object.defineProperty(this, 'ready', {
             enumerable: true,
             value: this.#loadComponent({parentComponentNameList: this.#initialAncestorChain})
@@ -1407,6 +1419,10 @@ export default class Component {
         propNames: string[];
         entryRef?: ForBlockScopeRef;
     }): Component {
+        if (definition.css !== undefined) {
+            Component.#injectComponentStyle(componentName, definition.css);
+        }
+
         Component.#constructionContext = {definition, parentEventTarget: parent.#eventTarget, ancestorChain, propSeeds, propNames};
 
         try {
@@ -1526,6 +1542,19 @@ export default class Component {
 
         if (!(templateElement instanceof HTMLTemplateElement)) {
             return Promise.reject('A component template file must have a <template> element as its first child');
+        }
+
+        // The root component's file never passes through definition parsing,
+        // so a <style> sibling there would be silently inert without this
+        // scan. It must stay root-only: an SFC child re-reads its own raw
+        // file (legally style-bearing) through this same path, and includes
+        // are already gated at parsing — no other path can carry a style
+        if (!this.#parentEventTarget) {
+            for (let node = templateElement.nextSibling; node; node = node.nextSibling) {
+                if (node instanceof HTMLStyleElement) {
+                    return Promise.reject(`A <style> in the "${this.componentName}" root component's template file is not supported — root styles belong to the host page's stylesheet`);
+                }
+            }
         }
 
         const documentFragment = templateElement.content;
@@ -2182,9 +2211,36 @@ export default class Component {
         (element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLButtonElement).disabled = shouldBeDisabled;
     }
 
+    // Type-level style injection: the first instance of a component whose
+    // file carries a <style> puts ONE element into document.head; later
+    // instances find it in the registry and inject nothing. destroy() never
+    // removes it — it is type-level state, like the caches. The leading
+    // `:scope ` step in the limit selector is load-bearing: without it, a
+    // wrapper sitting as a DIRECT CHILD of another stamped element would
+    // match the scope-end and become its own limit (a scoping root counts
+    // among its own descendants for scope-end matching), leaving that scope
+    // empty. The `> *` bound keeps the nested wrapper element itself
+    // styleable by the parent that wrote it, while the wrapper's subtree
+    // falls out of scope.
+    static #injectComponentStyle(componentName: string, css: string): void {
+        if (Component.#componentNameToStyleElementMap.has(componentName)) {
+            return;
+        }
+
+        const escapedComponentName = componentName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        const styleElement = document.createElement('style');
+
+        styleElement.dataset['componentStyle'] = componentName;
+        styleElement.textContent = `@scope ([data-component="${escapedComponentName}"]) to (:scope [data-component-root] > *) {${css}}`;
+        document.head.appendChild(styleElement);
+        Component.#componentNameToStyleElementMap.set(componentName, styleElement);
+    }
+
     static clearTemplateCache(): void {
         Component.#templateNameToTemplatePromiseMap.clear();
         Component.#definitionPromiseMap.clear();
+        Component.#componentNameToStyleElementMap.forEach(styleElement => styleElement.remove());
+        Component.#componentNameToStyleElementMap.clear();
     }
 
     static loadTemplate(templateName: string): Promise<string> {
@@ -2250,24 +2306,44 @@ export default class Component {
             }
         }
 
-        const scriptElement = meaningfulSiblings.find(node => node instanceof HTMLScriptElement) as HTMLScriptElement | undefined;
+        const scriptElements = meaningfulSiblings.filter(node => node instanceof HTMLScriptElement);
+        const styleElements = meaningfulSiblings.filter(node => node instanceof HTMLStyleElement);
+
+        // Checked before the template-only return: a style in a scriptless
+        // file must not degrade into a silently unstyled include
+        if (styleElements.length && !scriptElements.length) {
+            throw new Error(`The "${componentName}" template-only include cannot carry a <style> — an include has no scope of its own; give it a <script> to make it a component`);
+        }
+
+        const scriptElement = scriptElements[0];
 
         if (!scriptElement) {
             // Template-only: legacy include, stray content tolerated as today
             return null;
         }
 
-        if (meaningfulSiblings.length > 1) {
-            throw new Error(`The "${componentName}" component file must contain only <template> and <script>`);
+        if (scriptElements.length > 1 || styleElements.length > 1 || meaningfulSiblings.length !== scriptElements.length + styleElements.length) {
+            throw new Error(`The "${componentName}" component file must contain only <template>, <script>, and <style>`);
         }
+
+        const styleText = styleElements[0]?.textContent ?? '';
+        // Whitespace-only style text is absent CSS, not an empty injection
+        const css = styleText.trim() ? styleText : undefined;
 
         const moduleUrl = 'data:text/javascript;charset=utf-8,' + encodeURIComponent(scriptElement.textContent ?? '');
         const module = await import(/* @vite-ignore */ moduleUrl);
-        const definition = module.default as ComponentDefinition;
+        const exported = module.default as ComponentDefinition;
 
-        if (definition === null || typeof definition !== 'object') {
+        if (exported === null || typeof exported !== 'object') {
             throw new Error(`The "${componentName}" component script must export default a definition object`);
         }
+
+        // The module cache is keyed by URL and identical script text makes
+        // an identical data: URL, so two component files can share ONE
+        // exported object. The cached definition carries per-component
+        // state (css) and gets frozen, so each component freezes its own
+        // shallow copy, never the shared export
+        const definition: ComponentDefinition = {...exported};
 
         if (definition.data !== undefined && typeof definition.data !== 'function') {
             throw new Error(`The "${componentName}" definition's data must be a factory — data: () => ({...}) — so instances never share state`);
@@ -2286,6 +2362,15 @@ export default class Component {
                 console.warn(`Unknown key "${key}" in the "${componentName}" component definition`);
             }
         });
+
+        // Styles come from the file's <style>, never the script — a
+        // script-supplied css value was already flagged by the unknown-key
+        // sweep above and must not survive into injection
+        delete definition.css;
+
+        if (css !== undefined) {
+            definition.css = css;
+        }
 
         if (definition.methods) {
             Object.freeze(definition.methods);
