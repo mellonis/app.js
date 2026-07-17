@@ -602,6 +602,36 @@ describe('batching (phase B)', () => {
         expect(records.length).toBeLessThanOrEqual(1);
         observer.disconnect();
     });
+
+    // A formatter that destroys the component mid-drain (rather than the
+    // fuller parent/child props-handler wiring) — same invariant, far less
+    // setup: destroy() must never leave the drain wedged, and nothing may
+    // render for this instance once it's gone.
+    it('a mid-drain destroy resolves updated() and renders nothing further', async () => {
+        stubTemplates({root: '<template><p>${n |> maybeDestroy}</p></template>'});
+        const host = mountPoint();
+        const maybeDestroy = (value: number) => {
+            if (value === 2) {
+                app.destroy();
+            }
+
+            return value;
+        };
+        const app = new Component({element: host, data: {n: 1}, methods: {maybeDestroy: maybeDestroy as never}});
+        await app.ready;
+
+        app.data.n = 2;
+
+        await app.updated();
+
+        const textAfterDestroy = host.querySelector('p')?.textContent;
+
+        app.data.n = 3;
+
+        await app.updated();
+
+        expect(host.querySelector('p')?.textContent).toBe(textAfterDestroy);
+    });
 });
 
 describe('the keystroke lesson', () => {

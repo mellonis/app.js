@@ -505,12 +505,17 @@ export default class Component {
         queueMicrotask(() => {
             const pending = this.#pendingFlush;
 
-            this.#drain();
-            // Clear BEFORE resolving so a write inside updated().then mints
-            // a new flush instead of being folded into this one, which has
-            // already finished draining
-            this.#pendingFlush = null;
-            pending?.resolve();
+            try {
+                this.#drain();
+            } finally {
+                // Clear BEFORE resolving so a write inside updated().then
+                // mints a new flush instead of being folded into this one,
+                // which has already finished draining — and an engine-level
+                // throw inside drain must never wedge the instance or
+                // deadlock an updated() awaiter
+                this.#pendingFlush = null;
+                pending?.resolve();
+            }
         });
     }
 
@@ -527,7 +532,7 @@ export default class Component {
         try {
             let iterations = 0;
 
-            while (this.#dirtyBindings.size) {
+            while (!this.#destroyed && this.#dirtyBindings.size) {
                 iterations += 1;
 
                 if (iterations > 64) {
