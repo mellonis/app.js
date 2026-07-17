@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A tiny reactive framework written as a teaching project for students learning JavaScript and the DOM, structured as an npm-workspaces monorepo. The framework lives in `packages/app.js` (TypeScript 7, strict, native `#private` internals; source of truth is two files, `packages/app.js/src/app.ts` for the DOM/reactivity layer and `packages/app.js/src/expression.ts` for the expression language); its build output `dist/` is **generated and gitignored — never commit build output**. A `prepare` script rebuilds `dist/` on every `npm install`. Runnable examples live in `packages/examples`, each served as its own web root by the zero-dependency `serve.mjs` (which aliases `/app.js` to the framework build). Framework runtime dependencies: none — keep it that way. Component files may carry a `<script>` (single-file components) — those mount as child Component instances with their own state, props (`data-component-prop-*`, one-way, batched `props` event), events (`data-component-on-*`, dedicated per-instance `EventTarget`), `mounted()` lifecycle, and `refs`; template-only files remain shared-scope includes.
+A tiny reactive framework written as a teaching project for students learning JavaScript and the DOM, structured as an npm-workspaces monorepo. The framework lives in `packages/app.js` (TypeScript 7, strict, native `#private` internals; source of truth is two files, `packages/app.js/src/app.ts` for the DOM/reactivity layer and `packages/app.js/src/expression.ts` for the expression language); its build output `dist/` is **generated and gitignored — never commit build output**. A `prepare` script rebuilds `dist/` on every `npm install`. Runnable examples live in `packages/examples` (`counter/`, `form/`, `todo/`, `registration/`), each served as its own web root by the zero-dependency `serve.mjs` (which aliases `/app.js` to the framework build). Framework runtime dependencies: none — keep it that way; the examples workspace is the one exception, carrying `zod` as a devDependency for the `registration/` capstone (`serve.mjs` separately aliases `/zod.js` to the installed package's own single-file ESM bundle — `packages/app.js/package.json` itself stays untouched). Component files may carry a `<script>` (single-file components) — those mount as child Component instances with their own state, props (`data-component-prop-*`, one-way, batched `props` event), events (`data-component-on-*`, dedicated per-instance `EventTarget`), `mounted()` lifecycle, and `refs`; template-only files remain shared-scope includes.
 
 ## Commands
 
@@ -13,9 +13,10 @@ npm install         # dev deps + builds packages/app.js/dist via prepare
 npm run build       # tsc → packages/app.js/dist
 npm run typecheck   # all workspaces
 npm test            # framework unit suite + examples smoke suite
-npm run ex:counter  # serve the counter example on :8123
-npm run ex:form     # serve the form example on :8123
-npm run ex:todo     # serve the todo example on :8123
+npm run ex:counter      # serve the counter example on :8123
+npm run ex:form         # serve the form example on :8123
+npm run ex:todo         # serve the todo example on :8123
+npm run ex:registration # serve the registration capstone example on :8123
 npm test -w app.js -- tests/components.test.ts   # single test file
 ```
 
