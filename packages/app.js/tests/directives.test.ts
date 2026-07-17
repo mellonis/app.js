@@ -224,6 +224,141 @@ describe('data-display-if', () => {
     });
 });
 
+describe('data-disabled-if', () => {
+    it('toggles element.disabled on write (root)', async () => {
+        stubTemplates({root: '<template><input data-disabled-if="locked"></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {locked: true}});
+        await app.ready;
+
+        const input = host.querySelector('input')!;
+
+        expect(input.disabled).toBe(true);
+
+        app.data.locked = false;
+        await app.updated();
+        expect(input.disabled).toBe(false);
+
+        app.data.locked = true;
+        await app.updated();
+        expect(input.disabled).toBe(true);
+    });
+
+    it('works inside data-for items with item scope', async () => {
+        stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id"><button data-disabled-if="$item.locked">${$item.label}</button></li></ul></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {items: [{id: 1, locked: true, label: 'a'}, {id: 2, locked: false, label: 'b'}]}});
+        await app.ready;
+
+        const buttons = [...host.querySelectorAll('button')] as HTMLButtonElement[];
+
+        expect(buttons[0].disabled).toBe(true);
+        expect(buttons[1].disabled).toBe(false);
+
+        app.data.items = [{id: 1, locked: false, label: 'a'}, {id: 2, locked: false, label: 'b'}];
+        await app.updated();
+
+        expect(buttons[0].disabled).toBe(false);
+    });
+
+    it('works on the data-for element itself', async () => {
+        stubTemplates({root: '<template><div><button data-for="items" data-key="$item.id" data-disabled-if="$item.locked">${$item.label}</button></div></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {items: [{id: 1, locked: true, label: 'a'}, {id: 2, locked: false, label: 'b'}]}});
+        await app.ready;
+
+        const buttons = [...host.querySelectorAll('button')] as HTMLButtonElement[];
+
+        expect(buttons).toHaveLength(2);
+        expect(buttons[0].disabled).toBe(true);
+        expect(buttons[1].disabled).toBe(false);
+
+        app.data.items = [{id: 1, locked: false, label: 'a'}, {id: 2, locked: false, label: 'b'}];
+        await app.updated();
+
+        expect(buttons[0].disabled).toBe(false);
+    });
+
+    it('errors loudly on a non-disableable element and does not bind', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({root: '<template><p data-disabled-if="true">text</p></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {}});
+        await app.ready;
+
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain('input, textarea, select, button');
+
+        const paragraph = host.querySelector('p')!;
+
+        expect(() => app.updated()).not.toThrow();
+        expect(paragraph.textContent).toBe('text');
+    });
+
+    it('composes with data-value on the same control (disabled input keeps its binding)', async () => {
+        stubTemplates({root: '<template><input data-value="name" data-disabled-if="locked"></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {name: 'before', locked: true}});
+        await app.ready;
+
+        const input = host.querySelector('input')!;
+
+        expect(input.disabled).toBe(true);
+        expect(input.value).toBe('before');
+
+        app.data.name = 'after';
+        await app.updated();
+        expect(input.value).toBe('after');
+
+        app.data.locked = false;
+        await app.updated();
+        expect(input.disabled).toBe(false);
+
+        input.value = 'typed';
+        input.dispatchEvent(new Event('input'));
+        expect(app.data.name).toBe('typed');
+    });
+
+    it('composes with data-show-if on the same element (independent bindings)', async () => {
+        stubTemplates({root: '<template><div><button data-show-if="visible" data-disabled-if="locked">go</button></div></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {visible: true, locked: true}});
+        await app.ready;
+
+        const button = host.querySelector('button') as HTMLButtonElement;
+
+        expect(button.disabled).toBe(true);
+
+        app.data.locked = false;
+        await app.updated();
+        expect((host.querySelector('button') as HTMLButtonElement).disabled).toBe(false);
+
+        app.data.visible = false;
+        await app.updated();
+        expect(host.querySelector('button')).toBeNull();
+
+        app.data.visible = true;
+        await app.updated();
+        expect(host.querySelector('button')).not.toBeNull();
+        expect((host.querySelector('button') as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('evicted items stop being toggled, without errors', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({root: '<template><ul><li data-for="items" data-key="$item.id"><button data-disabled-if="$item.locked"></button></li></ul></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {items: [{id: 1, locked: true}], other: 0}});
+        await app.ready;
+
+        const detachedButton = host.querySelector('button') as HTMLButtonElement;
+
+        app.data.items = [];
+        app.data.other = 1;
+
+        expect(detachedButton.disabled).toBe(true);
+        expect(errorSpy).not.toHaveBeenCalled();
+    });
+});
+
 describe('data-value: form controls only (issue #18)', () => {
     it('binds a textarea two-way', async () => {
         stubTemplates({root: '<template><textarea data-value="note"></textarea></template>'});

@@ -14,6 +14,7 @@ interface ComponentOptions {
 type TrackedBinding =
     | {kind: 'show'; element: HTMLElement; dependencies: Set<string>}
     | {kind: 'display'; element: HTMLElement; dependencies: Set<string>}
+    | {kind: 'disabled'; element: HTMLElement; dependencies: Set<string>}
     | {kind: 'value'; element: HTMLElement; dependencies: Set<string>}
     | {kind: 'text'; node: Text; dependencies: Set<string>}
     | {kind: 'block'; block: ForBlock; dependencies: Set<string>}
@@ -36,6 +37,12 @@ interface ValueEntry {
 interface DisplayIfEntry {
     expression: string;
     originalDisplay: string;
+    scopeRef?: ForBlockScopeRef;
+    binding: TrackedBinding;
+}
+
+interface DisabledIfEntry {
+    expression: string;
     scopeRef?: ForBlockScopeRef;
     binding: TrackedBinding;
 }
@@ -201,6 +208,8 @@ function collectTextNodes(node: Node, into: Text[] = []): Text[] {
 
 const formControlTagNames = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 const DATA_VALUE_FORM_ONLY_MESSAGE = 'data-value only works on form controls (input, textarea, select) — use ${expression} interpolation to display text';
+const disableableTagNames = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON']);
+const DATA_DISABLED_IF_MESSAGE = 'data-disabled-if only works on elements that honor disabled (input, textarea, select, button)';
 // Kebab suffix IS the event type, verbatim — HTML lowercases attribute names,
 // so case-sensitive event types are inexpressible here (irrelevant for
 // element-level DOM events, which are all-lowercase)
@@ -221,6 +230,7 @@ export default class Component {
 
     readonly #showIfElementToDataMap = new Map<HTMLElement, ShowIfEntry>();
     readonly #displayIfElementToDataMap = new Map<HTMLElement, DisplayIfEntry>();
+    readonly #disabledIfElementToDataMap = new Map<HTMLElement, DisabledIfEntry>();
     readonly #valueElementToDataMap = new Map<HTMLElement, ValueEntry>();
     readonly #textNodeToDataMap = new Map<Text, TextNodeEntry>();
     readonly #forBlocks = new Set<ForBlock>();
@@ -383,6 +393,7 @@ export default class Component {
         this.#abortController.abort();
         this.#showIfElementToDataMap.clear();
         this.#displayIfElementToDataMap.clear();
+        this.#disabledIfElementToDataMap.clear();
         this.#valueElementToDataMap.clear();
         this.#textNodeToDataMap.clear();
         this.#forBlocks.clear();
@@ -566,6 +577,11 @@ export default class Component {
                     }
                 });
                 batch.forEach(binding => {
+                    if (binding.kind === 'disabled') {
+                        this.#updateOneDisabledIf(binding.element);
+                    }
+                });
+                batch.forEach(binding => {
                     if (binding.kind === 'value') {
                         this.#updateOneValue(binding.element);
                     }
@@ -601,6 +617,7 @@ export default class Component {
         return [
             this.#showIfElementToDataMap.get(boundElement)?.binding,
             this.#displayIfElementToDataMap.get(boundElement)?.binding,
+            this.#disabledIfElementToDataMap.get(boundElement)?.binding,
             this.#valueElementToDataMap.get(boundElement)?.binding,
         ].filter((binding): binding is TrackedBinding => binding !== undefined);
     }
@@ -619,6 +636,7 @@ export default class Component {
         this.#forBlocks.forEach(block => this.#dirtyBindings.add(block.binding));
         this.#showIfElementToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
         this.#displayIfElementToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
+        this.#disabledIfElementToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
         this.#valueElementToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
         this.#textNodeToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
         this.#propBindings.forEach(record => this.#dirtyBindings.add(record.binding));
@@ -920,6 +938,31 @@ export default class Component {
             boundElements.push(element);
         });
 
+        // Unlike data-show-if, data-disabled-if is allowed on the clone root:
+        // it toggles the .disabled property, so there is no anchor conflict
+        [root, ...root.querySelectorAll<HTMLElement>('[data-disabled-if]')].forEach(element => {
+            if (element.dataset['disabledIf'] === undefined) {
+                return;
+            }
+
+            if (!this.#compileAtWiring(element.dataset['disabledIf']!, element)) {
+                return;
+            }
+
+            if (!disableableTagNames.has(element.tagName)) {
+                console.error(DATA_DISABLED_IF_MESSAGE, element);
+
+                return;
+            }
+
+            this.#disabledIfElementToDataMap.set(element, {
+                expression: element.dataset['disabledIf']!,
+                scopeRef,
+                binding: {kind: 'disabled', element, dependencies: new Set()},
+            });
+            boundElements.push(element);
+        });
+
         [root, ...root.querySelectorAll<HTMLElement>('*')].forEach(element => {
             Array.from(element.attributes)
                 .filter(attribute => DATA_ON_ATTRIBUTE_NAME_PATTERN.exec(attribute.name))
@@ -1143,6 +1186,7 @@ export default class Component {
                     this.#valueElementToDataMap.delete(boundElement);
                     this.#showIfElementToDataMap.delete(boundElement);
                     this.#displayIfElementToDataMap.delete(boundElement);
+                    this.#disabledIfElementToDataMap.delete(boundElement);
                 }
 
                 bindings.forEach(binding => this.#evictBinding(binding));
@@ -1357,6 +1401,23 @@ export default class Component {
                 expression: element.dataset['displayIf']!,
                 originalDisplay: element.style.display,
                 binding: {kind: 'display', element, dependencies: new Set()},
+            });
+        });
+
+        documentFragment.querySelectorAll<HTMLElement>('[data-disabled-if]').forEach(element => {
+            if (!this.#compileAtWiring(element.dataset['disabledIf']!, element)) {
+                return;
+            }
+
+            if (!disableableTagNames.has(element.tagName)) {
+                console.error(DATA_DISABLED_IF_MESSAGE, element);
+
+                return;
+            }
+
+            this.#disabledIfElementToDataMap.set(element, {
+                expression: element.dataset['disabledIf']!,
+                binding: {kind: 'disabled', element, dependencies: new Set()},
             });
         });
 
@@ -1754,6 +1815,26 @@ export default class Component {
         }
 
         element.style.display = shouldBeVisible ? entry.originalDisplay : 'none';
+    }
+
+    #updateOneDisabledIf(element: HTMLElement): void {
+        const entry = this.#disabledIfElementToDataMap.get(element);
+
+        if (!entry) {
+            return;
+        }
+
+        let shouldBeDisabled: boolean;
+
+        try {
+            shouldBeDisabled = !!this.#trackEvaluation(entry.binding, () => this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)}));
+        } catch (error) {
+            console.error(`Can't evaluate the "${entry.expression}" expression`, element, error);
+
+            return;
+        }
+
+        (element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLButtonElement).disabled = shouldBeDisabled;
     }
 
     static clearTemplateCache(): void {
