@@ -43,6 +43,7 @@ import type {
     TrackedBinding,
     ValueEntry,
 } from './support.js';
+import { clearCaches, injectComponentStyle, loadDefinition, loadTemplate as loadTemplateText } from './definition.js';
 
 export type { ComponentMethod } from './support.js';
 
@@ -82,18 +83,11 @@ export default class Component {
     readonly #eventTarget = new EventTarget();
     #parentEventTarget: EventTarget | undefined;
 
-    static readonly #definitionPromiseMap = new Map<string, Promise<ComponentDefinition | null>>();
     static #constructionContext: InternalConstruction | undefined;
 
     readonly #childComponents = new Set<Component>();
     #definition: ComponentDefinition | undefined;
     #initialAncestorChain: string[] = [];
-
-    static readonly #templateNameToTemplatePromiseMap = new Map<string, Promise<string>>();
-
-    // One injected <style> per component TYPE, keyed by name like the
-    // template and definition caches — and cleared with them
-    static readonly #componentNameToStyleElementMap = new Map<string, HTMLStyleElement>();
 
     constructor({element = document.body, componentName = 'root', data = {}, methods = {}}: ComponentOptions = {}) {
         const internal = Component.#constructionContext;
@@ -859,7 +853,7 @@ export default class Component {
 
             const entryAtWiring = block.entries.get(key);
 
-            Component.#loadDefinition(componentName).then(definition => {
+            loadDefinition(componentName).then(definition => {
                 // Liveness gate: same entry object still present, parent alive
                 if (this.#destroyed || block.entries.get(key) !== entryAtWiring) {
                     return;
@@ -1173,7 +1167,7 @@ export default class Component {
         entryRef?: ForBlockScopeRef;
     }): Component {
         if (definition.css !== undefined) {
-            Component.#injectComponentStyle(componentName, definition.css);
+            injectComponentStyle(componentName, definition.css);
         }
 
         Component.#constructionContext = {definition, parentEventTarget: parent.#eventTarget, ancestorChain, propSeeds, propNames};
@@ -1713,7 +1707,7 @@ export default class Component {
     #mountChildOrInclude(element: HTMLElement, parentComponentNameList: string[]): Promise<void> {
         const componentName = element.dataset['component']!;
 
-        return Component.#loadDefinition(componentName).then(definition => {
+        return loadDefinition(componentName).then(definition => {
             if (this.#destroyed) {
                 throw new Error(COMPONENT_DESTROYED_MESSAGE);
             }
@@ -1964,171 +1958,14 @@ export default class Component {
         (element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLButtonElement).disabled = shouldBeDisabled;
     }
 
-    // Type-level style injection: the first instance of a component whose
-    // file carries a <style> puts ONE element into document.head; later
-    // instances find it in the registry and inject nothing. destroy() never
-    // removes it — it is type-level state, like the caches. The leading
-    // `:scope ` step in the limit selector is load-bearing: without it, a
-    // wrapper sitting as a DIRECT CHILD of another stamped element would
-    // match the scope-end and become its own limit (a scoping root counts
-    // among its own descendants for scope-end matching), leaving that scope
-    // empty. The `> *` bound keeps the nested wrapper element itself
-    // styleable by the parent that wrote it, while the wrapper's subtree
-    // falls out of scope.
-    static #injectComponentStyle(componentName: string, css: string): void {
-        if (Component.#componentNameToStyleElementMap.has(componentName)) {
-            return;
-        }
-
-        const escapedComponentName = componentName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        const styleElement = document.createElement('style');
-
-        styleElement.dataset['componentStyle'] = componentName;
-        styleElement.textContent = `@scope ([data-component="${escapedComponentName}"]) to (:scope [data-component-root] > *) {${css}}`;
-        document.head.appendChild(styleElement);
-        Component.#componentNameToStyleElementMap.set(componentName, styleElement);
-    }
-
+    // The template and definition caches, the parsed-definition pipeline, and
+    // per-type style injection all live in the definition module; these two
+    // statics are the public surface over it.
     static clearTemplateCache(): void {
-        Component.#templateNameToTemplatePromiseMap.clear();
-        Component.#definitionPromiseMap.clear();
-        Component.#componentNameToStyleElementMap.forEach(styleElement => styleElement.remove());
-        Component.#componentNameToStyleElementMap.clear();
+        clearCaches();
     }
 
     static loadTemplate(templateName: string): Promise<string> {
-        let loadTemplatePromise: Promise<string>;
-
-        if (Component.#templateNameToTemplatePromiseMap.has(templateName)) {
-            loadTemplatePromise = Component.#templateNameToTemplatePromiseMap.get(templateName)!;
-        } else {
-            loadTemplatePromise = fetch(`/templates/${templateName}.html`)
-                .then(response => {
-                    if (!response.ok) {
-                        return Promise.reject(new Error(`HTTP ${response.status} for ${templateName}`));
-                    }
-
-                    return response.text();
-                })
-                .catch(error => {
-                    Component.#templateNameToTemplatePromiseMap.delete(templateName);
-
-                    return Promise.reject(error);
-                });
-
-            Component.#templateNameToTemplatePromiseMap.set(templateName, loadTemplatePromise);
-        }
-
-        return loadTemplatePromise;
-    }
-
-    static #loadDefinition(componentName: string): Promise<ComponentDefinition | null> {
-        let promise = Component.#definitionPromiseMap.get(componentName);
-
-        if (!promise) {
-            promise = Component.loadTemplate(componentName)
-                .then(text => Component.#parseDefinition(componentName, text))
-                .catch(error => {
-                    Component.#definitionPromiseMap.delete(componentName);
-
-                    return Promise.reject(error);
-                });
-
-            Component.#definitionPromiseMap.set(componentName, promise);
-        }
-
-        return promise;
-    }
-
-    static async #parseDefinition(componentName: string, templateText: string): Promise<ComponentDefinition | null> {
-        const divElement = document.createElement('div');
-
-        divElement.innerHTML = templateText;
-
-        const templateElement = divElement.firstChild;
-
-        if (!(templateElement instanceof HTMLTemplateElement)) {
-            throw new Error('A component template file must have a <template> element as its first child');
-        }
-
-        const meaningfulSiblings: ChildNode[] = [];
-
-        for (let node = templateElement.nextSibling; node; node = node.nextSibling) {
-            if (isMeaningfulNode(node)) {
-                meaningfulSiblings.push(node);
-            }
-        }
-
-        const scriptElements = meaningfulSiblings.filter(node => node instanceof HTMLScriptElement);
-        const styleElements = meaningfulSiblings.filter(node => node instanceof HTMLStyleElement);
-
-        // Checked before the template-only return: a style in a scriptless
-        // file must not degrade into a silently unstyled include
-        if (styleElements.length && !scriptElements.length) {
-            throw new Error(`The "${componentName}" template-only include cannot carry a <style> — an include has no scope of its own; give it a <script> to make it a component`);
-        }
-
-        const scriptElement = scriptElements[0];
-
-        if (!scriptElement) {
-            // Template-only: legacy include, stray content tolerated as today
-            return null;
-        }
-
-        if (scriptElements.length > 1 || styleElements.length > 1 || meaningfulSiblings.length !== scriptElements.length + styleElements.length) {
-            throw new Error(`The "${componentName}" component file must contain only <template>, <script>, and <style>`);
-        }
-
-        const styleText = styleElements[0]?.textContent ?? '';
-        // Whitespace-only style text is absent CSS, not an empty injection
-        const css = styleText.trim() ? styleText : undefined;
-
-        const moduleUrl = 'data:text/javascript;charset=utf-8,' + encodeURIComponent(scriptElement.textContent ?? '');
-        const module = await import(/* @vite-ignore */ moduleUrl);
-        const exported = module.default as ComponentDefinition;
-
-        if (exported === null || typeof exported !== 'object') {
-            throw new Error(`The "${componentName}" component script must export default a definition object`);
-        }
-
-        // The module cache is keyed by URL and identical script text makes
-        // an identical data: URL, so two component files can share ONE
-        // exported object. The cached definition carries per-component
-        // state (css) and gets frozen, so each component freezes its own
-        // shallow copy, never the shared export
-        const definition: ComponentDefinition = {...exported};
-
-        if (definition.data !== undefined && typeof definition.data !== 'function') {
-            throw new Error(`The "${componentName}" definition's data must be a factory — data: () => ({...}) — so instances never share state`);
-        }
-
-        if (definition.methods !== undefined && (definition.methods === null || typeof definition.methods !== 'object')) {
-            throw new Error(`The "${componentName}" definition's methods must be an object`);
-        }
-
-        if (definition.mounted !== undefined && typeof definition.mounted !== 'function') {
-            throw new Error(`The "${componentName}" definition's mounted must be a function`);
-        }
-
-        Object.keys(definition).forEach(key => {
-            if (!DEFINITION_KEYS.has(key)) {
-                console.warn(`Unknown key "${key}" in the "${componentName}" component definition`);
-            }
-        });
-
-        // Styles come from the file's <style>, never the script — a
-        // script-supplied css value was already flagged by the unknown-key
-        // sweep above and must not survive into injection
-        delete definition.css;
-
-        if (css !== undefined) {
-            definition.css = css;
-        }
-
-        if (definition.methods) {
-            Object.freeze(definition.methods);
-        }
-
-        return Object.freeze(definition);
+        return loadTemplateText(templateName);
     }
 }
