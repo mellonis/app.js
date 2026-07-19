@@ -298,7 +298,7 @@ describe('data-for: item scope and handlers', () => {
             element: host,
             data: {items: [{id: 1, label: 'a'}, {id: 2, label: 'b'}]},
             methods: {
-                pick(event, item, index) {
+                pick(__event, item, index) {
                     received.push({item: item as {id: number}, index});
                 },
             },
@@ -371,7 +371,7 @@ describe('data-for: item scope and handlers', () => {
         const app = new Component({
             element: host,
             methods: {
-                hit(event, item) {
+                hit(__event, item) {
                     sawItem = item;
                 },
             },

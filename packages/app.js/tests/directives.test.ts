@@ -761,7 +761,7 @@ describe('data-on-*: binds any DOM event by name (issue #20)', () => {
             element: host,
             data: {items: [{id: 1, label: 'a'}, {id: 2, label: 'b'}]},
             methods: {
-                hover(event: Event, item?: unknown, index?: number) {
+                hover(_event: Event, item?: unknown, index?: number) {
                     calls.push({item, index});
                 },
             },
