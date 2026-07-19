@@ -193,15 +193,16 @@ Create `packages/examples/profile/templates/root.html`:
 ```html
 <template>
     <h1>Profile</h1>
-    <label>Name</label>
+    <strong>Name</strong>
     <div data-component="editable-field"
          data-component-prop-value="name"
          data-component-on-committed="saveName"></div>
-    <label>Tagline</label>
+    <strong>Tagline</strong>
     <div data-component="editable-field"
          data-component-prop-value="tagline"
          data-component-on-committed="saveTagline"></div>
     <p id="preview">${name} — ${tagline}</p>
+    <button data-on-click="reset">Reset</button>
 </template>
 ```
 
@@ -221,9 +222,11 @@ Create `packages/examples/profile/index.html`:
 <script type="module">
     import Component from '/app.js';
 
+    const defaults = {name: 'Ada Lovelace', tagline: 'Mathematician'};
+
     new Component({
         element: document.querySelector('#app'),
-        data: {name: 'Ada Lovelace', tagline: 'Mathematician'},
+        data: {name: defaults.name, tagline: defaults.tagline},
         methods: {
             // Each field is wired to its own handler, so the parent already
             // knows which value arrived — no field name travels in the event
@@ -232,6 +235,13 @@ Create `packages/examples/profile/index.html`:
             },
             saveTagline(event) {
                 this.data.tagline = event.detail;
+            },
+            // Restoring both values to their defaults is the only action here
+            // that can hand a field a prop value its own draft doesn't already
+            // hold — that's the case the child's "props" re-seed listener exists for.
+            reset() {
+                this.data.name = defaults.name;
+                this.data.tagline = defaults.tagline;
             },
         },
     });
@@ -267,7 +277,7 @@ Expected: framework `297 passed` unchanged; examples `8 passed` (7 + this one); 
 - [ ] **Step 9: Verify it in a real browser, not just happy-dom**
 
 Run: `npm run ex:profile`, open `http://localhost:8123/`.
-Confirm by hand: both fields seeded; typing in one shows "unsaved" on that row only; Cancel restores it; Save updates the preview line; editing both and cancelling one leaves the other's text intact. `Ctrl-C` when done.
+Confirm by hand: both fields seeded; typing in one shows "unsaved" on that row only; Cancel restores it; Save updates the preview line; editing both and cancelling one leaves the other's text intact; Reset restores both fields and the preview to their defaults. `Ctrl-C` when done.
 
 This step exists because happy-dom does not evaluate `@scope`, so the component's `<style>` is only verified by eye.
 
@@ -344,7 +354,7 @@ At the end, all of these must hold:
 
 ## Notes for the implementer
 
-- **The `props` event is the load-bearing detail.** Without `this.events.on('props', seedFromProp)`, the child seeds once and then ignores the parent forever. The smoke test catches this at the Save step: the preview updates but a later Cancel restores a stale value.
+- **The `props` event is the load-bearing detail — but it's only observable through Reset.** Without `this.events.on('props', seedFromProp)`, the child seeds once and then ignores the parent forever. That is invisible everywhere except Reset: `cancel()` reads `this.props.value` live through the reactive getter, so a Cancel is never stale, Save or no Save — and every other prop write the parent makes lands a value equal to what the draft already holds, which the ghost's equal-primitive gate suppresses before a re-seed would even show. Reset is the only action that hands a field a prop value its own draft doesn't already hold; the smoke test catches a missing listener there.
 - **Do not "improve" the child by binding the prop directly.** `data-value="value"` targeting a prop is a loud framework error by design — that error is the lesson the example exists to teach around.
 - **Do not add Save/Cancel disabling.** It is the obvious polish and it is deliberately out of scope; `registration` introduces `data-disabled-if`.
 - If a step's code does not work as written, that is a plan bug worth reporting, not something to paper over.

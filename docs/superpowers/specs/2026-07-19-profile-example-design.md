@@ -89,6 +89,8 @@ The template binds `data-value="draft"` — never the prop — and shows a dirty
 3. Cancel snaps that input back to the parent's value; the preview never moved.
 4. Type again, Save — preview updates.
 5. **Independence:** edit both fields, cancel one, and assert the other's draft survived. This is the assertion that would catch shared state between instances, and the reason there are two fields at all.
+6. The tagline field's own Save commits through `saveTagline`, not `saveName` — a wiring bug pointing both fields at the same handler would go undetected if only the name field's Save were ever exercised.
+7. **Reset:** dirty one field, click Reset, and assert both fields and the preview return to their defaults. This is the only assertion that exercises the child's `props` re-seed listener — every other step above passes even without it.
 
 Each assertion must be one a broken implementation could fail — no asserting a value that holds whether or not the mechanism works.
 
@@ -104,4 +106,4 @@ Each assertion must be one a broken implementation could fail — no asserting a
 
 - **Editable rows in a list** — closer to the capstone, but teaches the local draft and the per-item-component dimension together, and `todo` already covers the list half.
 - **Live edit, emitting on every keystroke** — simplest, and what `contact-row` actually does, but the draft then looks like ceremony rather than a consequence of props being read-only. Save/Cancel is what proves the draft is a separate thing from the truth.
-- ~~**A parent-level "reset to defaults" button**~~ — originally cut as one moving part too many, on the reasoning that "the re-seed is still exercised on every Save." **That reasoning was wrong and the cut is reversed** (see Reset below): a field's prop only ever changes to a value its own draft already holds, so the re-seed write is suppressed by the ghost's equal-primitive gate. Verified by mutation — with the button absent, deleting `events.on('props', …)` left every assertion passing.
+- ~~**A parent-level "reset to defaults" button**~~ — originally cut as one moving part too many, on the reasoning that "the re-seed is still exercised on every Save." **That reasoning was wrong and the cut is reversed** (see Reset above): a field's prop only ever changes to a value its own draft already holds, so the re-seed write is suppressed by the ghost's equal-primitive gate. Verified by mutation — with the button absent, deleting `events.on('props', …)` left every assertion passing.

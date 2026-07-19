@@ -89,6 +89,7 @@ it('keeps an editable child\'s draft separate from the parent\'s value, per inst
     resetButton.dispatchEvent(new windowRealm.Event('click'));
     await pollFor(() => nameInput.value === 'Ada Lovelace');
 
-    expect(nameInput.value).toBe('Ada Lovelace');
+    expect(taglineInput.value).toBe('Mathematician');
+    expect(dirtyCount()).toBe(0);
     expect(preview.textContent).toBe('Ada Lovelace — Mathematician');
 });
