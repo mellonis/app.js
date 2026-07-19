@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { Browser, type HTMLInputElement } from 'happy-dom';
+import { Browser } from 'happy-dom';
+import type { HTMLInputElement } from 'happy-dom';
 import { pollFor, startExample, stopExample, type RunningExample } from './helpers';
 
 let example: RunningExample;
@@ -68,4 +69,26 @@ it('keeps an editable child\'s draft separate from the parent\'s value, per inst
 
     expect(taglineInput.value).toBe('First programmer');
     expect(dirtyCount()).toBe(1);
+
+    // Tagline's own Save must commit through saveTagline, not saveName — a
+    // wiring bug pointing both fields at the same handler would go
+    // undetected if only the name field's Save were ever exercised.
+    const [, taglineSave] = [...document.querySelectorAll('button')].filter(b => b.textContent === 'Save');
+    taglineSave.dispatchEvent(new windowRealm.Event('click'));
+    await pollFor(() => preview.textContent === 'Ada King — First programmer');
+    expect(dirtyCount()).toBe(0);
+
+    // Reset is the only action that hands a field a prop value its own draft
+    // doesn't already hold, which is what exercises the child's "props"
+    // re-seed listener — everything above passes even without it.
+    nameInput.value = 'Zzz';
+    nameInput.dispatchEvent(new windowRealm.Event('input'));
+    await pollFor(() => dirtyCount() === 1);
+
+    const [resetButton] = [...document.querySelectorAll('button')].filter(b => b.textContent === 'Reset');
+    resetButton.dispatchEvent(new windowRealm.Event('click'));
+    await pollFor(() => nameInput.value === 'Ada Lovelace');
+
+    expect(nameInput.value).toBe('Ada Lovelace');
+    expect(preview.textContent).toBe('Ada Lovelace — Mathematician');
 });

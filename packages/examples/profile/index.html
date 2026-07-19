@@ -9,9 +9,11 @@
 <script type="module">
     import Component from '/app.js';
 
+    const defaults = {name: 'Ada Lovelace', tagline: 'Mathematician'};
+
     new Component({
         element: document.querySelector('#app'),
-        data: {name: 'Ada Lovelace', tagline: 'Mathematician'},
+        data: {name: defaults.name, tagline: defaults.tagline},
         methods: {
             // Each field is wired to its own handler, so the parent already
             // knows which value arrived — no field name travels in the event
@@ -20,6 +22,13 @@
             },
             saveTagline(event) {
                 this.data.tagline = event.detail;
+            },
+            // Restoring both values to their defaults is the only action here
+            // that can hand a field a prop value its own draft doesn't already
+            // hold — that's the case the child's "props" re-seed listener exists for.
+            reset() {
+                this.data.name = defaults.name;
+                this.data.tagline = defaults.tagline;
             },
         },
     });
