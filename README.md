@@ -44,6 +44,18 @@ A tiny reactive framework
 # Components
 
 - A component template file may carry a `<script>` after its `<template>` — a single-file component (SFC), with its own `data`, `methods`, `props`, `events`, `refs`, and `mounted()` lifecycle. A file with no `<script>` stays a template-only include, sharing the parent's `data`/`methods`.
+- `mounted()` runs once the component's subtree is in the DOM. If it **returns a function**, that function is the component's cleanup and runs at `destroy()` — the other half of the lifecycle. It runs *before* listeners are severed, so a parting `this.events.emit(...)` still reaches the parent; a cleanup that throws is logged and does not stop the teardown. Use it to undo anything the framework does not own — a timer, a subscription, a listener on `window`:
+
+  ```js
+  export default {
+      data: () => ({ticks: 0}),
+      mounted() {
+          const id = setInterval(() => { this.data.ticks += 1; }, 1000);
+
+          return () => clearInterval(id);
+      },
+  };
+  ```
 - Props flow in, events flow out:
 
   ```html
@@ -126,8 +138,11 @@ and every stage still runs if you check it out.
 
 # Quick start
 
+Node 22 or newer is required (the framework itself ships no runtime
+dependencies; Node is needed only to build it and to serve the examples).
+
 ```sh
-git clone https://github.com/mellonis/app.js.git
+git clone <this repository>
 cd app.js
 npm install        # installs dev deps and builds the framework
 npm run ex:counter      # counter example → http://localhost:8123/
