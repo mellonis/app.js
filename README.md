@@ -28,10 +28,10 @@ A tiny reactive framework
 # Reactivity
 
 - A write to `data` schedules a render rather than running one immediately; every write that lands in the same microtask — one, or a dozen — coalesces into a single render.
-- `await app.updated()` resolves once that pending render has settled onto the DOM. Reach for it right after a write, in a test or inside a method, whenever you need to read the DOM back.
+- `await app.updated()` resolves once that pending render has settled onto the DOM — *this* component's render. Reach for it right after a write, in a test or inside a method, whenever you need to read the DOM back. If the write feeds a prop of a child component, the child re-renders on its own later microtask, so reading DOM that the **child** paints needs one more turn of the event loop after the `await` (`await new Promise(resolve => setTimeout(resolve))`). Everything your own template's bindings paint is settled as soon as `updated()` returns.
 - Writing the same value a key already holds is free: a primitive (or `null`) write that doesn't actually change anything renders nothing at all.
 - Arrays and plain objects still update by replacement, but mutating one in place and then reassigning the very same reference is a sanctioned escape hatch that does render: `data.todos = data.todos` after pushing into it in place, `data.user = data.user` after editing one of its keys, or reassigning partway down a chain (`data.user.address = data.user.address`) all work. Replacing a plain object with a genuinely different one is still a loud error — only self-assignment is allowed there.
-- Inside a method, the idiom for "write, then read the DOM back" is: write `this.data`, `await this.updated()`, then read `this.refs` — the DOM is guaranteed settled by the time that `await` returns.
+- Inside a method, the idiom for "write, then read the DOM back" is: write `this.data`, `await this.updated()`, then read `this.refs` — your own elements are guaranteed settled by the time that `await` returns. (A child component you passed new props to is not: it flushes on its own later microtask.)
 
 # Expressions
 

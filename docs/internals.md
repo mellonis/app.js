@@ -65,9 +65,14 @@ two maps.
 Notified bindings do not re-render immediately. They land in a dirty set, and
 the first write in a tick schedules one microtask flush — minting that flush's
 `updated()` promise at the same moment, so `await app.updated()` after any
-number of same-tick writes means "the DOM has settled". The store itself is
-synchronous: reading `data.x` right after writing it always shows the new
-value; only the DOM work batches.
+number of same-tick writes means "this component's DOM has settled". The
+boundary is per-instance and worth internalizing: a flush that re-seeds a
+child component's props leaves the CHILD's own flush scheduled as a later
+microtask, so `updated()` on the parent says nothing about the child's DOM.
+The test suite's `settle` helper exists for exactly this — it awaits
+`updated()` and then a macrotask, which covers the chain at any depth. The
+store itself is synchronous: reading `data.x` right after writing it always
+shows the new value; only the DOM work batches.
 
 The flush drains the dirty set in a fixed phase order — list blocks first
 (structure before content), then visibility, display, disabled, values, text,
