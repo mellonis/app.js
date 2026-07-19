@@ -491,3 +491,54 @@ it('a bare projected data-show-if hidden at distribution can still appear later'
 
     expect(host.querySelector('section span')?.textContent).toBe('peek');
 });
+
+describe('projection ownership', () => {
+    // Projected content keeps the PARENT's scope forever, and that ownership
+    // governs events too: a component written inside projected markup hears
+    // the component that WROTE it, not the slot host it physically lands in.
+    // Both candidates emit the same event name here, so the test distinguishes
+    // "heard the right one" from "heard anything".
+    it('a component in projected content hears its markup parent, not the slot host', async () => {
+        stubTemplates({
+            root: '<template><div data-component="host"><div data-component="guest"></div></div></template>',
+            host: `<template><div class="body"><button data-on-click="shout"></button><slot></slot></div></template>
+<script>
+    export default {
+        methods: {
+            shout() { this.events.emit('who', 'slot-host'); },
+        },
+    };
+</script>`,
+            guest: `<template><i>\${from}</i></template>
+<script>
+    export default {
+        data: () => ({from: 'none'}),
+        mounted() {
+            this.events.onParent('who', event => {
+                this.data.from = event.detail;
+            });
+        },
+    };
+</script>`,
+        });
+        const host = mountPoint();
+        const app = new Component({element: host});
+
+        await app.ready;
+        await vi.waitFor(() => {
+            expect(host.querySelector('i')?.textContent).toBe('none');
+        });
+
+        // The slot host it physically sits inside emits first — inaudible
+        host.querySelector('button')!.dispatchEvent(new Event('click'));
+        await settle(app);
+
+        expect(host.querySelector('i')?.textContent).toBe('none');
+
+        // The component that WROTE the markup emits — heard
+        app.events.emit('who', 'root');
+        await settle(app);
+
+        expect(host.querySelector('i')?.textContent).toBe('root');
+    });
+});
