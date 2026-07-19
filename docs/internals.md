@@ -1,8 +1,16 @@
 # Internals — how the framework actually works
 
-This is the map for reading the source. The framework is two files —
-`packages/app.js/src/app.ts` (the DOM and reactivity engine) and
-`packages/app.js/src/expression.ts` (the expression language) — and five ideas.
+This is the map for reading the source. The framework is five files under
+`packages/app.js/src/` — and five ideas.
+
+| File | What lives there |
+|---|---|
+| `app.ts` | The engine: bindings, the dependency graph, the flush, list reconciliation, and the component lifecycle. One class, connected through `#private` fields, deliberately kept whole. |
+| `expression.ts` | The expression language — tokenizer, parser, evaluator. Self-contained. |
+| `ghost.ts` | The reactive store. Reaches the engine through two hooks it is handed, `record` and `notify`, and knows nothing else about it. |
+| `definition.ts` | How a component file becomes a definition, plus the three type-level caches (template text, parsed definition, injected `<style>`). |
+| `support.ts` | Types, message strings, and pure helpers shared by the above. |
+
 Each section below names the idea, the reason it exists, and where to read it.
 The git history is the long-form version: the engine grew feature by feature,
 and every stage still runs if you check it out.
@@ -22,8 +30,13 @@ arrays, not in objects that grow keys.
 Writes pass a gate first: assigning an equal primitive (or `null` over `null`)
 does nothing at all — no notification, no render. Equal object, array, or
 function references pass through deliberately: same-reference assignment IS the
-in-place-mutation signal. Read the gate in `#createGhost` (app.ts) — it is
+in-place-mutation signal. Read the gate in `createGhost` (ghost.ts) — it is
 three lines, and most of reactivity's efficiency lives in them.
+
+The store reaches the rest of the framework through exactly two operations it
+is handed at construction: `record(path)` when a getter fires, `notify(path)`
+when a write clears the gate. That is the entire contract, which is why the
+file can be read start to finish without knowing anything about the DOM.
 
 ## 2. The dependency graph — who re-renders, and why
 
@@ -143,9 +156,12 @@ the components section of the README beside them.
 
 1. `expression.ts` end to end — self-contained, zero framework knowledge
    needed.
-2. app.ts's ghost + tracking sections (ideas 1–2).
-3. The flush (idea 3), then `data-for` (idea 4).
-4. Components (idea 6) last — they compose everything above.
-5. Then the git history from the first commit: every subsystem landed as a
+2. `ghost.ts` end to end — also self-contained; it is idea 1 whole, and short.
+3. app.ts's tracking section (idea 2), then the flush (idea 3), then
+   `data-for` (idea 4). The banner comments mark each one.
+4. `definition.ts` when you want the SFC file format — it stands alone and can
+   be read at any point.
+5. Components (idea 6) last — they compose everything above.
+6. Then the git history from the first commit: every subsystem landed as a
    reviewed chapter, and the engine you just read replaced a simpler one you
    can still run.
