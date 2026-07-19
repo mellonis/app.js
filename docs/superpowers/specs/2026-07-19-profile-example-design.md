@@ -12,6 +12,8 @@
 
 A tiny profile card with **two** independent `editable-field` instances (name, tagline) and a preview line reading the parent's committed values.
 
+A parent-level **Reset** button restores both values to their defaults. It exists for one reason: it is the only action that changes a field's prop to a value the field's own draft does **not** already hold, which is what makes the `props` re-seed observable at all. Without it the re-seed listener is dead code — `cancel()` and the dirty marker both read `props.value` live through the reactive getter, so they work without it.
+
 ```
 Profile
 
@@ -102,4 +104,4 @@ Each assertion must be one a broken implementation could fail — no asserting a
 
 - **Editable rows in a list** — closer to the capstone, but teaches the local draft and the per-item-component dimension together, and `todo` already covers the list half.
 - **Live edit, emitting on every keystroke** — simplest, and what `contact-row` actually does, but the draft then looks like ceremony rather than a consequence of props being read-only. Save/Cancel is what proves the draft is a separate thing from the truth.
-- **A parent-level "reset to defaults" button** — would make the `props` re-seed unmistakable by pushing new values into both children mid-edit. Cut as one moving part too many; the re-seed is still exercised on every Save.
+- ~~**A parent-level "reset to defaults" button**~~ — originally cut as one moving part too many, on the reasoning that "the re-seed is still exercised on every Save." **That reasoning was wrong and the cut is reversed** (see Reset below): a field's prop only ever changes to a value its own draft already holds, so the re-seed write is suppressed by the ghost's equal-primitive gate. Verified by mutation — with the button absent, deleting `events.on('props', …)` left every assertion passing.

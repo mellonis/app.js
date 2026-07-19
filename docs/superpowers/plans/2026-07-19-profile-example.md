@@ -16,7 +16,7 @@
 - No AI attribution anywhere. Published content (README, docs, code comments) stays forge-agnostic — no issue numbers, no hosting URLs.
 - Baseline before starting: **297 unit + 7 smoke green**, `npm run typecheck` clean. Nothing existing may flip.
 - The framework is untouched. This plan adds **zero** lines under `packages/app.js/src/`.
-- **Exactly one new concept.** No `data-disabled-if`, no `data-display-if`, no `data-for`, no validation, no `{field, value}` payload envelope, no per-field ids. Each is explicitly rejected in the spec; adding one is a spec violation, not an improvement.
+- **Exactly one new concept.** A parent-level Reset button (plain `data-on-click` + a method) is IN scope — it introduces no new vocabulary and is what makes the `props` re-seed observable. Still out: no `data-disabled-if`, no `data-display-if`, no `data-for`, no validation, no `{field, value}` payload envelope, no per-field ids. Each is explicitly rejected in the spec; adding one is a spec violation, not an improvement.
 - Every new assertion must be one a broken implementation could fail. A value that holds whether or not the mechanism works is not a test.
 - Port `8237` for the smoke test — 8231–8236 are taken.
 - Example naming/formatting follows `packages/examples/cards/`: 4-space indent, `<!doctype html>`, `<title>X — app.js example</title>`.
