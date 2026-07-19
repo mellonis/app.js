@@ -4,6 +4,13 @@
     <button data-on-click="toggle">toggle</button>
     <button data-on-click="remove">remove</button>
 </template>
+<style>
+    /* The component wrapper is a real box; make it transparent to the list
+       layout so the li's flex children are the component's own elements */
+    :scope {
+        display: contents;
+    }
+</style>
 <script>
     export default {
         methods: {

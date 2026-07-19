@@ -3,6 +3,13 @@
         <label>Name: <input data-value="name"></label>
         <label>Email: <input data-value="user.email"></label>
         <label><input type="checkbox" data-value="subscribe"> Subscribe</label>
+        <label>Plan:
+            <select data-value="plan">
+                <option value="free">Free</option>
+                <option value="pro">Pro</option>
+                <option value="team">Team</option>
+            </select>
+        </label>
         <fieldset>
             <legend>Contact preference</legend>
             <label><input type="radio" name="contact" value="email" data-value="contact"> Email</label>
@@ -11,5 +18,5 @@
         </fieldset>
         <button type="submit">Submit</button>
     </form>
-    <p>Preview: ${name || '(no name)'}, ${user.email || '(no email)'}, ${subscribe ? 'subscribed' : 'not subscribed'}, contact: ${contact}</p>
+    <p>Preview: ${name || '(no name)'}, ${user.email || '(no email)'}, ${subscribe ? 'subscribed' : 'not subscribed'}, plan: ${plan}, contact: ${contact}</p>
 </template>

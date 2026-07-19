@@ -33,9 +33,3 @@ li s {
 s {
     color: gray;
 }
-
-/* The component wrapper is a real box; make it transparent to the list layout
-   so the li's flex children are the component's own elements */
-[data-component="todo-item"] {
-    display: contents;
-}
