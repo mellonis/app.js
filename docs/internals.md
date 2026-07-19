@@ -115,7 +115,7 @@ mid-sweep, and the guards were the fix. Read `#reconcileTrackedBlock` and
 
 Directive and interpolation expressions run through a hand-written pipeline in
 `expression.ts`: a tokenizer (strings, numbers, operators, the enumerated
-escape set), a Pratt parser (one method per precedence level, from `|>` at the
+escape set), a recursive-descent parser (one method per precedence level, from `|>` at the
 loosest to member access at the tightest), and a tree-walking evaluator. No
 `eval`, no `Function` — the todo example has a page that disables both and
 still runs.

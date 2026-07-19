@@ -5,8 +5,8 @@ A tiny reactive framework
 
 - Templates should be placed in /templates directory
 - Meaningful attributes in templates are: data-component, data-show-if, data-display-if, data-disabled-if, data-value, data-on-*, data-for + data-key, data-ref, data-slot
-- Component needs to be constructed with parameters: element, data, methods and componentName, which is optional
-- A Component instance exposes `ready` — a promise that resolves when the initial mount finishes (and rejects with the original error if it fails)
+- `new Component({element, data, methods, componentName})` — every option has a default (`document.body`, `{}`, `{}`, and `'root'`), so all four are optional
+- A Component instance exposes `ready` — a promise that resolves when the initial mount finishes (and rejects with the original error if it fails). The initial render is already in the DOM when `ready` resolves — mount is not batched, so there is no `updated()` to await after it
 - `app.destroy()` stops the app: listeners are removed (one `AbortController` for everything), updates stop, the rendered DOM stays as-is
 - A template that fails to load (network error or HTTP error status) is not cached — the next load retries the fetch
 - Template text supports `${expression}` interpolation (escape a literal with `\${`)
@@ -35,7 +35,7 @@ A tiny reactive framework
 
 # Expressions
 
-- Every directive attribute and every `${...}` placeholder shares one small expression language: numbers, strings, booleans, `null`/`undefined`, array literals with spreads; property access via `.`, `[]`, and `?.`; function calls; arrow functions; ternaries and logical operators (`&&`, `||`, `??`); and `|>` pipes. There is no assignment and no statements — an expression only ever produces a value.
+- Every directive attribute and every `${...}` placeholder shares one small expression language: numbers, strings, booleans, `null`/`undefined`, array literals with spreads; property access via `.`, `[]`, and `?.`; function calls; arrow functions; arithmetic (`+ - * / %`); comparison (`< <= > >=`) and strict equality (`=== !==`); the unary operators `!`, `-`, `+`, and `typeof`; ternaries and logical operators (`&&`, `||`, `??`); and `|>` pipes. There is no assignment and no statements — an expression only ever produces a value.
 - Names resolve through one fixed chain: item scope inside a `data-for` (`$item`, `$index`, `$array`) → component props → `data` → `methods` → a small whitelist of globals (`Math`, `JSON`, `Number`, `String`, `Boolean`, `Array`, `isNaN`, `isFinite`, `parseInt`, `parseFloat`).
 - A pipe calls its right side with its left side as the sole argument, so a formatter is just a method: `<p>${todos |> left} left</p>` calls `methods.left(todos)` and renders the count.
 - A malformed expression is caught when the template loads, not when it renders — the console gets the expression text with a caret under the character that broke parsing.
@@ -64,6 +64,9 @@ A tiny reactive framework
        data-component-on-toggled="toggleTodo"></div>
   ```
 
+- The emitting half lives on `this.events` inside a component's `<script>`: `emit(name, payload)` fires an event the parent can catch with `data-component-on-<name>`, `on(name, handler)` listens to the component's own emitter, and `onParent(name, handler)` listens to the parent's. The payload arrives as the event's `detail`. `'props'` is reserved — the framework emits it when props are re-seeded, so a component cannot emit it. Every subscription is torn down with the component.
+- A prop whose name collides with a key in the component's own `data` is a loud error that rejects that instance: props are inputs, and a name cannot mean two things at once.
+- `data-ref="name"` collects an element into `refs`. Two rules: a duplicate name is a loud error and the first element wins, and `data-ref` inside a `data-for` item is a loud error — per-item elements have no single stable name, so reach them through the item component instead.
 - `data:` module imports (how a component's `<script>` is loaded) require a CSP without a strict `script-src` — fine for the teaching context.
 - Student trap: component events always ride the `data-component-` prefix — `data-on-removed` on a component element binds a DOM event that will never fire.
 
@@ -91,11 +94,15 @@ A tiny reactive framework
 
 - A component with no `<slot>` at all can't take wrapper content — putting markup inside its `data-component` element is a loud error, and the content is dropped.
 
+- A component written inside projected markup hears the component that **wrote** it, not the one whose slot it lands in. Ownership follows the markup, not the final DOM position — the same rule that keeps projected expressions resolving through the parent.
+
+- The rest of the loud errors around slots, all of which drop the offending piece rather than half-wiring it: a `<slot>` in the **root** component's template (the root is nobody's child, so nothing can be projected into it); a `<slot>` inside the child's own `data-for` block; a directive or `data-on-*` on the `<slot>` element itself (wrap the region in a container and decorate that); a `<slot>` nested inside another slot's fallback; a duplicate slot name (the first wins); `data-slot="x"` naming a slot the child's template doesn't declare (the content falls into the default bucket); an empty `data-slot=""`; and default-bucket content arriving at a template that declares only named slots.
+
 - The cards example runs projection end to end: one card component filled three different ways — both slots projected, reactive parent-owned content, and nothing at all (fallbacks).
 
 ## Styles (per-component CSS)
 
-- A single-file component may also carry one `<style>` after its `<template>` — one `<script>` and one `<style>`, in either order. The CSS is injected into `document.head` once per component type, wrapped in the platform's `@scope` rule, so it applies inside every instance of that component and stops at any nested single-file component — whose own file styles its own subtree. A template-only include is not a boundary: its markup is styled through the component that includes it, just as it shares that component's data and methods:
+- A single-file component may also carry one `<style>` after its `<template>` — one `<script>` and one `<style>`, in either order. The CSS is injected into `document.head` once per component type, wrapped in the platform's `@scope` rule, so it applies inside every instance of that component and stops at any nested single-file component — whose own file styles its own subtree. The boundary falls just inside that nested wrapper: the wrapper ELEMENT is still in the outer component's scope and stays styleable by it, while everything below the wrapper is not. A template-only include is not a boundary: its markup is styled through the component that includes it, just as it shares that component's data and methods:
 
   ```html
   <!-- templates/card.html -->
