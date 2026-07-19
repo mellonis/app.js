@@ -34,18 +34,30 @@ it('drives the full registration flow: submit-first validation, live fixes, reve
     const [nameError, emailError] = [...document.querySelectorAll('p.error')] as unknown as HTMLParagraphElement[];
     const form = document.querySelector('form')!;
 
+    // data-display-if is asserted on style.display throughout, not just on the
+    // error text: the text comes from a sibling ${} interpolation and renders
+    // whether or not the directive ever runs, so text alone cannot tell a
+    // working directive from a dead one
+    expect(nameError.style.display).toBe('none');
+    expect(emailError.style.display).toBe('none');
+
     // Invalid submit — first submit paints every error at once
     form.dispatchEvent(new windowRealm.Event('submit'));
 
     await pollFor(() => nameError.textContent !== '' && emailError.textContent !== '');
     expect(nameError.textContent).not.toBe('');
     expect(emailError.textContent).not.toBe('');
+    expect(nameError.style.display).not.toBe('none');
+    expect(emailError.style.display).not.toBe('none');
 
     // Now in live mode: fixing the name clears just its own error
     nameInput.value = 'Ada Lovelace';
     nameInput.dispatchEvent(new windowRealm.Event('input'));
     await pollFor(() => nameError.textContent === '');
     expect(emailError.textContent).not.toBe('');
+    // ...and hides just its own paragraph
+    expect(nameError.style.display).toBe('none');
+    expect(emailError.style.display).not.toBe('none');
 
     emailInput.value = 'ada@example.com';
     emailInput.dispatchEvent(new windowRealm.Event('input'));
