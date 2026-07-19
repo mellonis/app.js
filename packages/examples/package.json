@@ -9,6 +9,7 @@
     "todo": "node serve.mjs todo",
     "cards": "node serve.mjs cards",
     "registration": "node serve.mjs registration",
+    "profile": "node serve.mjs profile",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },

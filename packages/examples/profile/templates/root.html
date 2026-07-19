@@ -1,0 +1,12 @@
+<template>
+    <h1>Profile</h1>
+    <label>Name</label>
+    <div data-component="editable-field"
+         data-component-prop-value="name"
+         data-component-on-committed="saveName"></div>
+    <label>Tagline</label>
+    <div data-component="editable-field"
+         data-component-prop-value="tagline"
+         data-component-on-committed="saveTagline"></div>
+    <p id="preview">${name} — ${tagline}</p>
+</template>

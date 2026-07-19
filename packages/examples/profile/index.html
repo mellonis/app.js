@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Profile — app.js example</title>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+    import Component from '/app.js';
+
+    new Component({
+        element: document.querySelector('#app'),
+        data: {name: 'Ada Lovelace', tagline: 'Mathematician'},
+        methods: {
+            // Each field is wired to its own handler, so the parent already
+            // knows which value arrived — no field name travels in the event
+            saveName(event) {
+                this.data.name = event.detail;
+            },
+            saveTagline(event) {
+                this.data.tagline = event.detail;
+            },
+        },
+    });
+</script>
+</body>
+</html>

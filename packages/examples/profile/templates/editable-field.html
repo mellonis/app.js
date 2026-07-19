@@ -1,0 +1,42 @@
+<template>
+    <input data-value="draft">
+    <button data-on-click="commit">Save</button>
+    <button data-on-click="cancel">Cancel</button>
+    <span class="dirty">${draft === value ? '' : 'unsaved'}</span>
+</template>
+<style>
+    :scope {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+    }
+</style>
+<script>
+    export default {
+        // A prop is an INPUT: read-only, owned by the parent. A form control
+        // needs something writable, so the field keeps its own copy of the
+        // text and only tells the parent about it on Save.
+        data: () => ({draft: ''}),
+        methods: {
+            commit() {
+                this.events.emit('committed', this.data.draft);
+            },
+            cancel() {
+                this.data.draft = this.props.value;
+            },
+        },
+        mounted() {
+            // Seed once at mount, then again whenever the parent sends new
+            // props — the framework fires "props" on every re-seed. After a
+            // Save the value arriving back is the one just typed, and writing
+            // an equal string is suppressed, so the input never re-renders
+            // underneath the caret.
+            const seedFromProp = () => {
+                this.data.draft = this.props.value;
+            };
+
+            seedFromProp();
+            this.events.on('props', seedFromProp);
+        },
+    };
+</script>
