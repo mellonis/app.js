@@ -739,16 +739,20 @@ function evaluateNode(node: Node, resolve: IdentifierResolver): unknown {
             return +(value as number);
         }
         case 'binary': {
-            const left = evaluateNode(node.left, resolve) as never;
-            const right = evaluateNode(node.right, resolve) as never;
+            // Values are `unknown` here and the operators below are JS's own,
+            // coercions included — so each one casts at its use site to the
+            // primitive TypeScript needs to see. The casts are erased: what
+            // runs is plain JS comparison and arithmetic on the real values.
+            const left = evaluateNode(node.left, resolve);
+            const right = evaluateNode(node.right, resolve);
 
             switch (node.op) {
                 case '===': return left === right;
                 case '!==': return left !== right;
-                case '<': return left < right;
-                case '<=': return left <= right;
-                case '>': return left > right;
-                case '>=': return left >= right;
+                case '<': return (left as number) < (right as number);
+                case '<=': return (left as number) <= (right as number);
+                case '>': return (left as number) > (right as number);
+                case '>=': return (left as number) >= (right as number);
                 case '+': return (left as number) + (right as number);
                 case '-': return (left as number) - (right as number);
                 case '*': return (left as number) * (right as number);

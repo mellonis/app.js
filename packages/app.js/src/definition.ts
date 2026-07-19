@@ -125,7 +125,9 @@ async function parseDefinition(componentName: string, templateText: string): Pro
     const scriptElement = scriptElements[0];
 
     if (!scriptElement) {
-        // Template-only: legacy include, stray content tolerated as today
+        // No <script>: a template-only include, which has no scope of its
+        // own. Stray siblings are tolerated here — the strict file contract
+        // below applies only to files that declare themselves components
         return null;
     }
 

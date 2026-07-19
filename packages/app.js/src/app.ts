@@ -772,10 +772,14 @@ export default class Component {
             boundElements.push(element);
         });
 
-        // The entry already exists (set by the caller before wiring) — its
-        // controller is this clone's own lifetime, so an eviction severs
-        // these listeners without waiting for the whole component to die
-        const listenerSignal = block.entries.get(key)!.listenerController.signal;
+        // The entry already exists (set by the caller before wiring). Held by
+        // reference for the rest of this method: its controller is this
+        // clone's own lifetime, so an eviction severs these listeners without
+        // waiting for the whole component to die, and any async step below
+        // compares against this same object to tell "still live" from
+        // "evicted and replaced under us"
+        const entry = block.entries.get(key)!;
+        const listenerSignal = entry.listenerController.signal;
 
         [root, ...root.querySelectorAll<HTMLElement>('*')].forEach(element => {
             Array.from(element.attributes)
@@ -820,11 +824,9 @@ export default class Component {
                 }
             }
 
-            const entryAtWiring = block.entries.get(key);
-
             loadDefinition(componentName).then(definition => {
                 // Liveness gate: same entry object still present, parent alive
-                if (this.#destroyed || block.entries.get(key) !== entryAtWiring) {
+                if (this.#destroyed || block.entries.get(key) !== entry) {
                     return;
                 }
 
@@ -851,7 +853,7 @@ export default class Component {
                     entryRef: scopeRef,
                 });
 
-                entryAtWiring!.child = child;
+                entry.child = child;
 
                 if (bindings.length) {
                     binding.child = child;
@@ -1738,11 +1740,11 @@ export default class Component {
         }
     }
 
-    // The per-child body of what used to be one loop over every prop
-    // binding — batching semantics are unchanged: Object.is gates decide
-    // which props actually changed, ONE combined "props" event carries all
-    // of them, and the child's own bindings wake through #notify afterward,
-    // so a props-handler write lands before the child's own bindings drain
+    // Re-seeds ONE child's props, and batches while doing it: Object.is gates
+    // decide which props actually changed, ONE combined "props" event carries
+    // all of them, and the child's own bindings wake through #notify
+    // afterward — so a write made by a props handler lands before the child's
+    // own bindings drain
     #reseedChild(child: Component): void {
         if (child.#destroyed) {
             return;
