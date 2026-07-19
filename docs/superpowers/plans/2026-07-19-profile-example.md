@@ -252,13 +252,13 @@ Create `packages/examples/profile/index.html`:
 
 - [ ] **Step 6: Add the run scripts**
 
-In `packages/examples/package.json`, add to `"scripts"` after `"registration"`:
+In `packages/examples/package.json`, add to `"scripts"` between `"cards"` and `"registration"`, so script order matches the documented ladder:
 
 ```json
     "profile": "node serve.mjs profile",
 ```
 
-In the root `package.json`, add to `"scripts"` after `"ex:registration"`:
+In the root `package.json`, add to `"scripts"` between `"ex:cards"` and `"ex:registration"`:
 
 ```json
     "ex:profile": "npm run profile -w examples",
