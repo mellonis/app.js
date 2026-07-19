@@ -59,6 +59,8 @@ export default class Component {
     declare readonly props: Readonly<Record<string, unknown>>;
     declare readonly refs: Record<string, HTMLElement>;
 
+    // ----------------------------------------------------------------- state
+
     #propsBacking: Record<string, unknown> = {};
     readonly #propBindings = new Map<Component, PropBindingRecord>();
 
@@ -99,6 +101,8 @@ export default class Component {
     readonly #childComponents = new Set<Component>();
     #definition: ComponentDefinition | undefined;
     #initialAncestorChain: string[] = [];
+
+    // ---------------------------------------------------------- construction
 
     constructor({element = document.body, componentName = 'root', data = {}, methods = {}}: ComponentOptions = {}) {
         const internal = Component.#constructionContext;
@@ -218,6 +222,8 @@ export default class Component {
         });
     }
 
+    // ------------------------------------------------------------- lifecycle
+
     destroy(): void {
         if (this.#destroyed) {
             return;
@@ -299,6 +305,8 @@ export default class Component {
         }
     }
 
+    // -------------------------------------------------------------- tracking
+
     #resubscribe(binding: TrackedBinding, next: Set<string>): void {
         binding.dependencies.forEach(path => {
             if (!next.has(path)) {
@@ -344,6 +352,8 @@ export default class Component {
             this.#scheduleFlush();
         }
     }
+
+    // ----------------------------------------------------------------- flush
 
     // Coalesces every write landing in the same microtask tick into one
     // flush: a write arriving while a flush is already pending returns early
@@ -449,6 +459,8 @@ export default class Component {
         }
     }
 
+    // --------------------------------------------------- binding bookkeeping
+
     // Every binding kind's own map still holds the live entry for its
     // element/node — this is the one place that reaches across all of them.
     // An element can carry more than one directive (show-if AND display-if
@@ -488,6 +500,8 @@ export default class Component {
         this.#textNodeToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
         this.#propBindings.forEach(record => this.#dirtyBindings.add(record.binding));
     }
+
+    // --------------------------------------------------------- interpolation
 
     #wireTextInterpolations(root: Node, scopeRef?: ForBlockScopeRef): Text[] {
         const boundTextNodes: Text[] = [];
@@ -549,6 +563,8 @@ export default class Component {
         return boundTextNodes;
     }
 
+    // ----------------------------------------------------------- expressions
+
     #resolverFor(scope?: Record<string, unknown>): IdentifierResolver {
         return name => {
             if (scope && Object.hasOwn(scope, name)) {
@@ -603,6 +619,8 @@ export default class Component {
             throw error;
         }
     }
+
+    // ----------------------------------------------------------- list blocks
 
     #extractForBlock(element: HTMLElement, parentComponentNameList: string[]): void {
         if (element.dataset['showIf'] !== undefined || element.dataset['component'] !== undefined) {
@@ -1078,6 +1096,8 @@ export default class Component {
         });
     }
 
+    // ---------------------------------------------------------------- events
+
     // methods is frozen at construction, so a name that isn't a key now never
     // becomes one — the check belongs here, at wiring time, not at the
     // event-time guard below (which stays as defense-in-depth)
@@ -1105,6 +1125,8 @@ export default class Component {
             entry.isHidden = true;
         }
     }
+
+    // ------------------------------------------------------ child components
 
     static #instantiate({element, componentName, definition, parent, ancestorChain, propSeeds, propNames, entryRef}: {
         element: HTMLElement;
@@ -1176,6 +1198,8 @@ export default class Component {
             }, {signal: wiring.signal});
         });
     }
+
+    // ------------------------------------------------------------- templates
 
     #loadComponent({componentWrapper = this.element, componentName = this.componentName, parentComponentNameList = []}: LoadComponentOptions = {}): Promise<void> {
         if (parentComponentNameList.indexOf(componentName) >= 0) {
@@ -1269,6 +1293,8 @@ export default class Component {
         return this.#wireFragment(documentFragment, parentComponentNameList)
             .then(childFailure => ({documentFragment, childFailure, slotRecords}));
     }
+
+    // ----------------------------------------------------------------- slots
 
     // The slot scan is the first sweep of a component's own template — before
     // its own data-for extraction, so a <slot> nested in a block is still
@@ -1419,6 +1445,8 @@ export default class Component {
         return Promise.all(fillPromises)
             .then(failures => failures.find((failure): failure is PromiseRejectedResult => failure !== undefined));
     }
+
+    // ------------------------------------------------------ directive wiring
 
     // Wires an arbitrary detached subtree exactly as the template root is
     // wired: every directive sweep, then child/include mounting. Callable on
@@ -1600,6 +1628,8 @@ export default class Component {
             .then(results => results.find((result): result is PromiseRejectedResult => result.status === 'rejected'));
     }
 
+    // ----------------------------------------------------------------- props
+
     #collectProps(element: HTMLElement, scope?: Record<string, unknown>): {seeds: Record<string, unknown>; names: string[]; bindings: PropBinding[]; failedSeedKinds: Set<string>} {
         const seeds: Record<string, unknown> = {};
         const names: string[] = [];
@@ -1692,6 +1722,8 @@ export default class Component {
             return child.ready;
         });
     }
+
+    // -------------------------------------------------------- drain updaters
 
     #showElement(element: HTMLElement): void {
         const entry = this.#showIfElementToDataMap.get(element)!;
@@ -1907,6 +1939,8 @@ export default class Component {
 
         (element as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLButtonElement).disabled = shouldBeDisabled;
     }
+
+    // ---------------------------------------------- definition cache surface
 
     // The template and definition caches, the parsed-definition pipeline, and
     // per-type style injection all live in the definition module; these two
