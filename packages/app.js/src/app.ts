@@ -416,8 +416,9 @@ export default class Component {
                 this.#dirtyBindings = new Set();
 
                 // Lists first (structure before content), then visibility,
-                // values, text, then prop re-seeds — the existing pass order,
-                // now scoped to whichever bindings are actually dirty
+                // then disabled, values, text, and prop re-seeds last — the
+                // existing pass order, now scoped to whichever bindings are
+                // actually dirty
                 batch.forEach(binding => {
                     if (binding.kind === 'block') {
                         this.#reconcileTrackedBlock(binding.block);
@@ -1112,7 +1113,7 @@ export default class Component {
     }
 
     #handleEvent({methodName, event, item, index}: {methodName: string; event: Event; item?: unknown; index?: number}): void {
-        if (this.methods.hasOwnProperty(methodName)) {
+        if (Object.hasOwn(this.methods, methodName)) {
             this.methods[methodName](event, item, index);
         }
     }

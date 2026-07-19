@@ -78,3 +78,29 @@ describe('events core', () => {
         expect(handler).not.toHaveBeenCalled();
     });
 });
+
+describe('method lookup', () => {
+    // A method whose name collides with an Object.prototype member must still
+    // dispatch. Asking `methods.hasOwnProperty(name)` would reach the lookup
+    // THROUGH the object being searched: it invokes the user's own function
+    // with the method NAME as its first argument, then reads the return value
+    // as the answer. So the handler runs with the wrong argument and the real
+    // dispatch never happens — which is why this asserts what the handler
+    // RECEIVED, not merely that it ran. A call count alone passes either way.
+    it('dispatches a method named after an Object.prototype member', async () => {
+        stubTemplates({root: '<template><button data-on-click="hasOwnProperty"></button></template>'});
+
+        const received: unknown[] = [];
+        const host = mountPoint();
+        const app = new Component({
+            element: host,
+            methods: {hasOwnProperty(event: Event) { received.push(event); }},
+        });
+
+        await app.ready;
+        host.querySelector('button')!.dispatchEvent(new Event('click'));
+
+        expect(received).toHaveLength(1);
+        expect(received[0]).toBeInstanceOf(Event);
+    });
+});
