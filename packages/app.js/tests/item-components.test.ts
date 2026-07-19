@@ -97,7 +97,16 @@ describe('per-item components', () => {
     it('eviction mid-definition-load abandons silently (nothing constructed, no later errors)', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-        stubTemplates({root: LIST_ROOT, 'todo-item': ITEM_SFC});
+        // "Nothing constructed" is the claim, and only mounted() can witness
+        // it: the evicted entry's element is already detached, so a DOM query
+        // reads empty whether the liveness gate held or a whole component was
+        // built against the dead entry (listeners and all) behind it
+        (window as unknown as {__constructed: number}).__constructed = 0;
+        stubTemplates({
+            root: LIST_ROOT,
+            'todo-item': `<template><span>\${todo.title}</span></template>
+<script>export default {mounted() { window.__constructed += 1; }};</script>`,
+        });
         const host = mountPoint();
         const app = new Component({element: host, data: {todos: [{id: 1, title: 'a'}], other: 0}, methods: {onRemoved() {}}});
 
@@ -110,6 +119,7 @@ describe('per-item components', () => {
         app.data.other = 1;
 
         expect(host.querySelector('span')).toBeNull();
+        expect((window as unknown as {__constructed: number}).__constructed).toBe(0);
         expect(errorSpy).not.toHaveBeenCalled();
     });
 
@@ -325,5 +335,48 @@ describe('per-item components', () => {
         await vi.waitFor(() => {
             expect(errorSpy.mock.calls.flat().join(' ')).toContain('cycle');
         });
+    });
+});
+
+describe('per-item component liveness', () => {
+    // The gate this covers sits after `await loadDefinition(...)`: by then the
+    // entry that asked for the component may have been evicted and replaced.
+    // Reaching it needs the fetch still IN FLIGHT while the entry is live, so
+    // the template promise is held open by hand — the shared stubTemplates
+    // helper resolves immediately, which is why the neighbouring eviction test
+    // never gets this far.
+    it('a definition resolving after its entry was evicted constructs nothing', async () => {
+        (window as unknown as {__constructed: number}).__constructed = 0;
+
+        let releaseItemTemplate: (text: string) => void;
+        const itemTemplate = new Promise<string>(resolve => { releaseItemTemplate = resolve; });
+        const ITEM = `<template><span>\${todo.title}</span></template>
+<script>export default {mounted() { window.__constructed += 1; }};</script>`;
+
+        vi.stubGlobal('fetch', vi.fn((url: string) => {
+            if (url === '/templates/root.html') {
+                return Promise.resolve({ok: true, status: 200, text: () => Promise.resolve(LIST_ROOT)});
+            }
+
+            return Promise.resolve({ok: true, status: 200, text: () => itemTemplate});
+        }));
+
+        const host = mountPoint();
+        const app = new Component({element: host, data: {todos: [{id: 1, title: 'a'}], other: 0}, methods: {onRemoved() {}}});
+
+        // Let the root mount and the item wire, so the definition fetch is
+        // genuinely pending against a LIVE entry
+        await new Promise(resolve => setTimeout(resolve, 10));
+        expect(host.querySelector('[data-component="todo-item"]')).not.toBeNull();
+
+        // Evict while that fetch is still in flight, then let it land
+        app.data.todos = [];
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        releaseItemTemplate!(ITEM);
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        expect((window as unknown as {__constructed: number}).__constructed).toBe(0);
+        expect(host.querySelector('span')).toBeNull();
     });
 });
