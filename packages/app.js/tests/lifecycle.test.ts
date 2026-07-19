@@ -48,7 +48,7 @@ describe('mounted() and cleanup', () => {
         expect(log).toEqual(['mounted:refs-ok', 'cleanup', 'parent-heard-bye']);
     });
 
-    it('a throwing mounted() logs and does not break the mount; a throwing cleanup logs and does not break destroy', async () => {
+    it('a throwing mounted() logs and does not break the mount', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
         stubTemplates({
@@ -63,6 +63,40 @@ describe('mounted() and cleanup', () => {
         expect(host.querySelector('i')?.textContent).toBe('alive');
         expect(errorSpy.mock.calls.flat().join(' ')).toContain('mounted');
         expect(() => app.destroy()).not.toThrow();
+    });
+
+    // The cleanup half needs a mounted() that RETURNS before throwing — a
+    // mounted() that throws never registers a cleanup, so it cannot reach the
+    // guard at all. Asserting the severed listener is what makes this test
+    // bite: without the guard, destroy() aborts before the AbortController
+    // does, and the listener outlives the component.
+    it('a throwing cleanup logs and does not break destroy', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const log: string[] = [];
+
+        (window as unknown as {__log: string[]}).__log = log;
+        stubTemplates({
+            root: '<template><div data-component="badCleanup" data-component-on-ping="onPing"></div></template>',
+            badCleanup: `<template><i>alive</i></template>
+<script>export default {mounted() { return () => { throw new Error('cleanup boom'); }; }};</script>`,
+        });
+        const host = mountPoint();
+        const app = new Component({
+            element: host,
+            methods: {onPing() { log.push('heard'); }},
+        });
+
+        await app.ready;
+
+        const child = host.querySelector('[data-component="badCleanup"]')!;
+
+        expect(() => app.destroy()).not.toThrow();
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain('cleanup threw');
+
+        // The abort must still have happened after the throwing cleanup
+        child.dispatchEvent(new CustomEvent('ping'));
+
+        expect(log).toEqual([]);
     });
 
     it('destroy before mount settles: mounted never runs', async () => {
