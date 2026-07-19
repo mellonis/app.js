@@ -44,6 +44,8 @@ import type {
     ValueEntry,
 } from './support.js';
 import { clearCaches, injectComponentStyle, loadDefinition, loadTemplate as loadTemplateText } from './definition.js';
+import { createGhost } from './ghost.js';
+import type { GhostHooks } from './ghost.js';
 
 export type { ComponentMethod } from './support.js';
 
@@ -71,6 +73,15 @@ export default class Component {
     #dirtyBindings = new Set<TrackedBinding>();
     #activeFrame: Set<string> | null = null;
     #drainDepth = 0;
+
+    // The ghost's whole view of this component: reads land in the open
+    // tracking frame, writes reach the dirty set. Built once as a field so
+    // every nested ghost shares the one object rather than minting a pair of
+    // closures per level.
+    readonly #ghostHooks: GhostHooks = {
+        record: path => this.#record(path),
+        notify: path => this.#notify(path),
+    };
 
     #cleanup: (() => void) | undefined;
     readonly #refsBacking: Record<string, HTMLElement> = {};
@@ -126,7 +137,7 @@ export default class Component {
             },
             data: {
                 enumerable: true,
-                value: this.#createGhost(data),
+                value: createGhost(data, this.#ghostHooks),
             },
             element: {
                 enumerable: true,
@@ -536,67 +547,6 @@ export default class Component {
         });
 
         return boundTextNodes;
-    }
-
-    #createGhost(data: Record<string, unknown>, prefix = ''): Record<string, unknown> {
-        const ghost: Record<string, unknown> = {};
-        const app = this;
-
-        Object.keys(data).forEach(key => {
-            const path = prefix ? `${prefix}.${key}` : key;
-
-            if (data[key] !== null && typeof data[key] === 'object' && !Array.isArray(data[key])) {
-                const nestedGhost = this.#createGhost(data[key] as Record<string, unknown>, path);
-
-                Object.defineProperty(ghost, key, {
-                    enumerable: true,
-                    get() {
-                        app.#record(path);
-
-                        return nestedGhost;
-                    },
-                    // Objects stay replace-only, but the array idiom's escape
-                    // hatch works here too: self-assignment (data.user =
-                    // data.user) triggers a pass after in-place mutation —
-                    // and, being an equal object reference, always notifies
-                    set(newValue: unknown) {
-                        if (newValue !== nestedGhost) {
-                            throw new TypeError(`The "${key}" object cannot be replaced wholesale — mutate its keys, then assign it to itself to update`);
-                        }
-
-                        app.#notify(path);
-                    },
-                });
-            } else {
-                Object.defineProperty(ghost, key, {
-                    enumerable: true,
-                    get() {
-                        app.#record(path);
-
-                        return data[key];
-                    },
-                    set(newValue: unknown) {
-                        const currentValue = data[key];
-                        // Equal primitives (and double-null) are a no-op;
-                        // equal array/object/function references still go
-                        // through — they are the mutate-then-self-assign hatch
-                        const suppress = Object.is(currentValue, newValue)
-                            && (newValue === null || (typeof newValue !== 'object' && typeof newValue !== 'function'));
-
-                        if (suppress) {
-                            return;
-                        }
-
-                        data[key] = newValue;
-                        app.#notify(path);
-                    },
-                });
-            }
-        });
-
-        Object.preventExtensions(ghost);
-
-        return ghost;
     }
 
     #resolverFor(scope?: Record<string, unknown>): IdentifierResolver {
