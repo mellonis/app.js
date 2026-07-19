@@ -56,7 +56,7 @@ describe('component loading', () => {
         stubTemplates({selfy: '<template><div data-component="selfy"></div></template>'});
         const app = new Component({element: mountPoint(), componentName: 'selfy'});
 
-        await expect(app.ready).rejects.toBe('A component cycle was detected during loading');
+        await expect(app.ready).rejects.toEqual(new Error('A component cycle was detected during loading'));
     });
 
     it('still rejects a mutual cycle (a → b → a)', async () => {
@@ -67,7 +67,7 @@ describe('component loading', () => {
         });
         const app = new Component({element: mountPoint(), componentName: 'a'});
 
-        await expect(app.ready).rejects.toBe('A component cycle was detected during loading');
+        await expect(app.ready).rejects.toEqual(new Error('A component cycle was detected during loading'));
     });
 
     it('renders remaining bindings when one expression throws (issue #4)', async () => {
@@ -81,7 +81,7 @@ describe('component loading', () => {
         await vi.waitFor(() => {
             expect(host.querySelector('#ok')?.textContent).toBe('t');
         }, {timeout: 300});
-        expect(errorSpy.mock.calls.flat()).toContain('Can\'t evaluate the "oops()" expression');
+        expect(errorSpy.mock.calls.flat()).toContain('Can\'t evaluate the "oops()" interpolation expression');
     });
 
     it('applies remaining bindings when a show-if expression throws (issue #4)', async () => {
@@ -95,7 +95,7 @@ describe('component loading', () => {
         await vi.waitFor(() => {
             expect(host.querySelector('#ok')?.textContent).toBe('t');
         });
-        expect(errorSpy.mock.calls.flat()).toContain('Can\'t evaluate the "oops()" expression');
+        expect(errorSpy.mock.calls.flat()).toContain('Can\'t evaluate the "oops()" data-show-if expression');
     });
 
     it('exposes a ready promise that resolves after the initial mount (issue #5)', async () => {
@@ -122,7 +122,7 @@ describe('component loading', () => {
         new Component({element: mountPoint()});
 
         await vi.waitFor(() => {
-            expect(errorSpy.mock.calls.flat()).toContain('A component template file must have a <template> element as its first child');
+            expect(errorSpy.mock.calls.flat().join(' ')).toContain('A component template file must have a <template> element as its first child');
         });
     });
 });

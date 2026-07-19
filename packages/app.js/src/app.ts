@@ -9,9 +9,9 @@ import {
     DEFAULT_SLOT_NAME,
     DEFINITION_KEYS,
     directiveAnchorComments,
-    disableableTagNames,
+    DISABLEABLE_TAG_NAMES,
     EXPRESSION_GLOBALS,
-    formControlTagNames,
+    FORM_CONTROL_TAG_NAMES,
     isContentNode,
     isMeaningfulNode,
     isValidPropName,
@@ -697,7 +697,7 @@ export default class Component {
                 return;
             }
 
-            if (!formControlTagNames.has(element.tagName)) {
+            if (!FORM_CONTROL_TAG_NAMES.has(element.tagName)) {
                 console.error(DATA_VALUE_FORM_ONLY_MESSAGE, element);
 
                 return;
@@ -708,7 +708,7 @@ export default class Component {
 
         [root, ...root.querySelectorAll<HTMLElement>('[data-ref]')].forEach(element => {
             if (element.dataset['ref'] !== undefined) {
-                console.error('data-ref inside a data-for block is not supported in v1', element);
+                console.error('data-ref inside a data-for block is not supported', element);
             }
         });
 
@@ -758,7 +758,7 @@ export default class Component {
                 return;
             }
 
-            if (!disableableTagNames.has(element.tagName)) {
+            if (!DISABLEABLE_TAG_NAMES.has(element.tagName)) {
                 console.error(DATA_DISABLED_IF_MESSAGE, element);
 
                 return;
@@ -801,7 +801,7 @@ export default class Component {
                 return;
             }
 
-            if (formControlTagNames.has(element.tagName)) {
+            if (FORM_CONTROL_TAG_NAMES.has(element.tagName)) {
                 console.error('data-component cannot be placed on a form control', element);
 
                 return;
@@ -1107,7 +1107,7 @@ export default class Component {
             return true;
         }
 
-        console.error(`no such method "${methodName}" in methods — check the attribute for a typo`, element);
+        console.error(`No method "${methodName}" in methods — check the attribute for a typo`, element);
 
         return false;
     }
@@ -1115,15 +1115,6 @@ export default class Component {
     #handleEvent({methodName, event, item, index}: {methodName: string; event: Event; item?: unknown; index?: number}): void {
         if (Object.hasOwn(this.methods, methodName)) {
             this.methods[methodName](event, item, index);
-        }
-    }
-
-    #hideElement(element: HTMLElement): void {
-        const entry = this.#showIfElementToDataMap.get(element)!;
-
-        if (!entry.isHidden) {
-            element.replaceWith(entry.anchor);
-            entry.isHidden = true;
         }
     }
 
@@ -1204,7 +1195,7 @@ export default class Component {
 
     #loadComponent({componentWrapper = this.element, componentName = this.componentName, parentComponentNameList = []}: LoadComponentOptions = {}): Promise<void> {
         if (parentComponentNameList.indexOf(componentName) >= 0) {
-            return Promise.reject('A component cycle was detected during loading');
+            return Promise.reject(new Error('A component cycle was detected during loading'));
         }
 
         // True for a component's own top-level mount (the true root, or an
@@ -1263,7 +1254,7 @@ export default class Component {
         const templateElement = divElement.firstChild;
 
         if (!(templateElement instanceof HTMLTemplateElement)) {
-            return Promise.reject('A component template file must have a <template> element as its first child');
+            return Promise.reject(new Error('A component template file must have a <template> element as its first child'));
         }
 
         // The root component's file never passes through definition parsing,
@@ -1274,7 +1265,7 @@ export default class Component {
         if (!this.#parentEventTarget) {
             for (let node = templateElement.nextSibling; node; node = node.nextSibling) {
                 if (node instanceof HTMLStyleElement) {
-                    return Promise.reject(`A <style> in the "${this.componentName}" root component's template file is not supported — root styles belong to the host page's stylesheet`);
+                    return Promise.reject(new Error(`A <style> in the "${this.componentName}" root component's template file is not supported — root styles belong to the host page's stylesheet`));
                 }
             }
         }
@@ -1516,7 +1507,7 @@ export default class Component {
                 return;
             }
 
-            if (!disableableTagNames.has(element.tagName)) {
+            if (!DISABLEABLE_TAG_NAMES.has(element.tagName)) {
                 console.error(DATA_DISABLED_IF_MESSAGE, element);
 
                 return;
@@ -1545,7 +1536,7 @@ export default class Component {
                 return;
             }
 
-            if (!formControlTagNames.has(element.tagName)) {
+            if (!FORM_CONTROL_TAG_NAMES.has(element.tagName)) {
                 console.error(DATA_VALUE_FORM_ONLY_MESSAGE, element);
 
                 return;
@@ -1613,7 +1604,7 @@ export default class Component {
         });
 
         const subComponentPromiseList = Array.from(fragment.querySelectorAll<HTMLElement>('[data-component]')).map(element => {
-            if (formControlTagNames.has(element.tagName)) {
+            if (FORM_CONTROL_TAG_NAMES.has(element.tagName)) {
                 console.error('data-component cannot be placed on a form control', element);
 
                 return Promise.resolve();
@@ -1703,6 +1694,9 @@ export default class Component {
                 return this.#loadComponent({componentWrapper: element, componentName, parentComponentNameList});
             }
 
+            // The child doesn't exist yet — collection needs a binding object
+            // to record into, so it's built with a placeholder and patched
+            // with the real child right after instantiation
             const binding: Extract<TrackedBinding, {kind: 'props'}> = {kind: 'props', child: undefined as unknown as Component, dependencies: new Set()};
             const {seeds, names, bindings, failedSeedKinds} = this.#trackEvaluation(binding, () => this.#collectProps(element));
             const child = Component.#instantiate({
@@ -1725,6 +1719,15 @@ export default class Component {
     }
 
     // -------------------------------------------------------- drain updaters
+
+    #hideElement(element: HTMLElement): void {
+        const entry = this.#showIfElementToDataMap.get(element)!;
+
+        if (!entry.isHidden) {
+            element.replaceWith(entry.anchor);
+            entry.isHidden = true;
+        }
+    }
 
     #showElement(element: HTMLElement): void {
         const entry = this.#showIfElementToDataMap.get(element)!;
@@ -1817,7 +1820,7 @@ export default class Component {
         try {
             newValue = this.#trackEvaluation(entry.binding, () => this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)}));
         } catch (error) {
-            console.error(`Can't evaluate the "${entry.expression}" expression`, element, error);
+            console.error(`Can't evaluate the "${entry.expression}" data-value expression`, element, error);
 
             return;
         }
@@ -1869,7 +1872,7 @@ export default class Component {
         try {
             newValue = this.#trackEvaluation(entry.binding, () => this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)}));
         } catch (error) {
-            console.error(`Can't evaluate the "${entry.expression}" expression`, node, error);
+            console.error(`Can't evaluate the "${entry.expression}" interpolation expression`, node, error);
 
             return;
         }
@@ -1889,7 +1892,7 @@ export default class Component {
         try {
             shouldBeVisible = !!this.#trackEvaluation(entry.binding, () => this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)}));
         } catch (error) {
-            console.error(`Can't evaluate the "${entry.expression}" expression`, element, error);
+            console.error(`Can't evaluate the "${entry.expression}" data-show-if expression`, element, error);
 
             return;
         }
@@ -1913,7 +1916,7 @@ export default class Component {
         try {
             shouldBeVisible = !!this.#trackEvaluation(entry.binding, () => this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)}));
         } catch (error) {
-            console.error(`Can't evaluate the "${entry.expression}" expression`, element, error);
+            console.error(`Can't evaluate the "${entry.expression}" data-display-if expression`, element, error);
 
             return;
         }
@@ -1933,7 +1936,7 @@ export default class Component {
         try {
             shouldBeDisabled = !!this.#trackEvaluation(entry.binding, () => this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)}));
         } catch (error) {
-            console.error(`Can't evaluate the "${entry.expression}" expression`, element, error);
+            console.error(`Can't evaluate the "${entry.expression}" data-disabled-if expression`, element, error);
 
             return;
         }

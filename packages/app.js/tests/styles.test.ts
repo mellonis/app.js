@@ -82,7 +82,7 @@ describe('component styles', () => {
         stubTemplates({root: '<template><i>x</i></template><style>i { color: red; }</style>'});
         const app = new Component({element: mountPoint()});
 
-        await expect(app.ready).rejects.toBe('A <style> in the "root" root component\'s template file is not supported — root styles belong to the host page\'s stylesheet');
+        await expect(app.ready).rejects.toEqual(new Error('A <style> in the "root" root component\'s template file is not supported — root styles belong to the host page\'s stylesheet'));
         expect(injectedStyles()).toHaveLength(0);
     });
 
@@ -214,7 +214,7 @@ describe('component styles', () => {
     });
 
     it('a css key in the script export warns as unknown and never injects — styles come from <style> only', async () => {
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const unknownKeySpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({
             root: '<template><div data-component="sneaky"></div></template>',
             sneaky: '<template><i>x</i></template><script>export default {css: ".x { color: red; }"};</script>',
@@ -224,7 +224,7 @@ describe('component styles', () => {
         await app.ready;
 
         expect(host.querySelector('i')?.textContent).toBe('x');
-        expect(warnSpy.mock.calls.flat().join(' ')).toContain('css');
+        expect(unknownKeySpy.mock.calls.flat().join(' ')).toContain('css');
         expect(injectedStyles()).toHaveLength(0);
     });
 });

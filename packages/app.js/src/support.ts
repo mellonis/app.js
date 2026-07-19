@@ -284,9 +284,9 @@ export function isContentNode(node: Node): boolean {
     return isMeaningfulNode(node);
 }
 
-export const formControlTagNames = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
+export const FORM_CONTROL_TAG_NAMES = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 export const DATA_VALUE_FORM_ONLY_MESSAGE = 'data-value only works on form controls (input, textarea, select) — use ${expression} interpolation to display text';
-export const disableableTagNames = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON']);
+export const DISABLEABLE_TAG_NAMES = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON']);
 export const DATA_DISABLED_IF_MESSAGE = 'data-disabled-if only works on elements that honor disabled (input, textarea, select, button)';
 // Kebab suffix IS the event type, verbatim — HTML lowercases attribute names,
 // so case-sensitive event types are inexpressible here (irrelevant for

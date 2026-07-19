@@ -12,7 +12,7 @@ import type { ComponentDefinition } from './support.js';
 
 const templateNameToTemplatePromiseMap = new Map<string, Promise<string>>();
 
-const definitionPromiseMap = new Map<string, Promise<ComponentDefinition | null>>();
+const componentNameToDefinitionPromiseMap = new Map<string, Promise<ComponentDefinition | null>>();
 
 // One injected <style> per component TYPE, keyed by name like the
 // template and definition caches — and cleared with them
@@ -45,7 +45,7 @@ export function injectComponentStyle(componentName: string, css: string): void {
 
 export function clearCaches(): void {
     templateNameToTemplatePromiseMap.clear();
-    definitionPromiseMap.clear();
+    componentNameToDefinitionPromiseMap.clear();
     componentNameToStyleElementMap.forEach(styleElement => styleElement.remove());
     componentNameToStyleElementMap.clear();
 }
@@ -77,18 +77,18 @@ export function loadTemplate(templateName: string): Promise<string> {
 }
 
 export function loadDefinition(componentName: string): Promise<ComponentDefinition | null> {
-    let promise = definitionPromiseMap.get(componentName);
+    let promise = componentNameToDefinitionPromiseMap.get(componentName);
 
     if (!promise) {
         promise = loadTemplate(componentName)
             .then(text => parseDefinition(componentName, text))
             .catch(error => {
-                definitionPromiseMap.delete(componentName);
+                componentNameToDefinitionPromiseMap.delete(componentName);
 
                 return Promise.reject(error);
             });
 
-        definitionPromiseMap.set(componentName, promise);
+        componentNameToDefinitionPromiseMap.set(componentName, promise);
     }
 
     return promise;
@@ -166,7 +166,7 @@ async function parseDefinition(componentName: string, templateText: string): Pro
 
     Object.keys(definition).forEach(key => {
         if (!DEFINITION_KEYS.has(key)) {
-            console.warn(`Unknown key "${key}" in the "${componentName}" component definition`);
+            console.error(`Unknown key "${key}" in the "${componentName}" component definition`);
         }
     });
 

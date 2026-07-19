@@ -11,6 +11,14 @@ export interface CompiledExpression {
     readonly rootIdentifier?: string;
     readonly assignmentDepth?: number;
     evaluate(resolve: IdentifierResolver): unknown;
+    // The resolver `assign` wants is NOT the one `evaluate` wants, and the
+    // difference depends on assignmentDepth. At depth 1 (`data-value="name"`)
+    // the write has to land on the object that OWNS the root name, so the
+    // resolver must hand back that container. At depth > 1
+    // (`data-value="user.city"`) the walk starts from the root's VALUE, which
+    // is what a normal evaluating resolver returns. A caller that passes its
+    // evaluating resolver to both must special-case depth 1 — see how the
+    // engine wires write-back.
     assign(resolve: IdentifierResolver, value: unknown): void;
 }
 
@@ -186,8 +194,8 @@ type Node =
 
 const BLOCKED_KEYS = new Set(['constructor', '__proto__', 'prototype']);
 const NOT_IN_LANGUAGE = new Map([
-    ['in', 'the "in" operator is not part of this language'],
-    ['instanceof', 'the "instanceof" operator is not part of this language'],
+    ['in', 'The "in" operator is not part of this language'],
+    ['instanceof', 'The "instanceof" operator is not part of this language'],
 ]);
 
 // -------------------------------------------------------------------- parser
@@ -768,7 +776,7 @@ function evaluateNode(node: Node, resolve: IdentifierResolver): unknown {
             const fn = evaluateNode(node.right, resolve);
 
             if (typeof fn !== 'function') {
-                throw new TypeError(`right side of |> is not a function: ${String(fn)}`);
+                throw new TypeError(`The right side of |> is not a function: ${String(fn)}`);
             }
 
             return fn(value);
