@@ -52,6 +52,16 @@ describe('tokenizer', () => {
         expect(parseErrorOf('1.').message).toContain('1.0');
     });
 
+    it('rejects a malformed exponent and an unexpected character, each with its position', () => {
+        const exponentError = parseErrorOf('1e');
+        expect(exponentError.message).toContain('Malformed exponent');
+        expect(exponentError.position).toBe(0);
+
+        const charError = parseErrorOf('a @ b');
+        expect(charError.message).toContain('Unexpected character "@"');
+        expect(charError.position).toBe(2);
+    });
+
     it('bare | teaches |> and ||', () => {
         const message = parseErrorOf('a | b').message;
         expect(message).toContain('|>');

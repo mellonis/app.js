@@ -137,6 +137,54 @@ describe('per-item components', () => {
         expect(host.querySelector('em')).toBeNull();
     });
 
+    it('bans data-component on a form control inside items', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        stubTemplates({
+            root: '<template><ul><li data-for="items" data-key="$item.id"><input data-component="todo-item"><span>${$item.id}</span></li></ul></template>',
+            'todo-item': ITEM_SFC,
+        });
+        const host = mountPoint();
+        const app = new Component({element: host, data: {items: [{id: 1}]}});
+        await app.ready;
+
+        await vi.waitFor(() => {
+            expect(errorSpy.mock.calls.flat().join(' ')).toContain('data-component cannot be placed on a form control');
+        });
+
+        const input = host.querySelector('input')!;
+
+        expect(input.dataset['componentRoot']).toBeUndefined();
+        expect(host.querySelector('li span')?.textContent).toBe('1');
+    });
+
+    it('logs once per entry when an item component template fails to load; the rest of the item still renders', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        stubTemplates({
+            root: '<template><ul><li data-for="items" data-key="$item.id"><div data-component="missing"></div><span>${$item.label}</span></li></ul></template>',
+        });
+        const host = mountPoint();
+        const app = new Component({element: host, data: {items: [{id: 1, label: 'a'}], other: 0}});
+        await app.ready;
+
+        await vi.waitFor(() => {
+            expect(errorSpy.mock.calls.flat().join(' ')).toContain('Can\'t load the "missing" component');
+        });
+
+        expect(host.querySelector('li span')?.textContent).toBe('a');
+
+        const loadErrorCalls = errorSpy.mock.calls.filter(call => String(call[0]).includes('Can\'t load the "missing" component'));
+
+        expect(loadErrorCalls).toHaveLength(1);
+
+        app.data.other = 1;
+        app.data.other = 2;
+        await app.updated();
+
+        expect(errorSpy.mock.calls.filter(call => String(call[0]).includes('Can\'t load the "missing" component'))).toHaveLength(1);
+    });
+
     it('a cleanup final-emit that prunes the list cannot resurrect evicted elements', async () => {
         stubTemplates({
             root: '<template><ul><li data-for="todos" data-key="$item.id"><div data-component="pruner" data-component-prop-todo="$item" data-component-on-gone="onGone"></div></li></ul></template>',

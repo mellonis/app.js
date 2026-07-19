@@ -88,6 +88,39 @@ describe('single-file components', () => {
         await expect(app.ready).rejects.toBeInstanceOf(Error);
     });
 
+    it('definition validation: a non-object methods rejects, naming the rule', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({
+            root: '<template><div data-component="bad-methods"></div></template>',
+            'bad-methods': '<template></template><script>export default {methods: 42};</script>',
+        });
+        const app = new Component({element: mountPoint()});
+
+        await expect(app.ready).rejects.toEqual(new Error('The "bad-methods" definition\'s methods must be an object'));
+    });
+
+    it('definition validation: a non-function mounted rejects, naming the rule', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({
+            root: '<template><div data-component="bad-mounted"></div></template>',
+            'bad-mounted': '<template></template><script>export default {mounted: "x"};</script>',
+        });
+        const app = new Component({element: mountPoint()});
+
+        await expect(app.ready).rejects.toEqual(new Error('The "bad-mounted" definition\'s mounted must be a function'));
+    });
+
+    it('definition validation: a script exporting a non-object default rejects', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({
+            root: '<template><div data-component="not-an-object"></div></template>',
+            'not-an-object': '<template></template><script>export default 5;</script>',
+        });
+        const app = new Component({element: mountPoint()});
+
+        await expect(app.ready).rejects.toEqual(new Error('The "not-an-object" component script must export default a definition object'));
+    });
+
     it('a failed definition is evicted so a fixed file retries; clearTemplateCache clears definitions', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({root: '<template><div data-component="late"></div></template>', late: '<template></template><script>export default {data: 5};</script>'});
@@ -124,7 +157,7 @@ describe('single-file components', () => {
         });
         const app = new Component({element: mountPoint(), componentName: 'a'});
 
-        await expect(app.ready).rejects.toBe('A component cycle was detected during loading');
+        await expect(app.ready).rejects.toEqual(new Error('A component cycle was detected during loading'));
     });
 
     it('destroy() cascades post-order into SFC children', async () => {

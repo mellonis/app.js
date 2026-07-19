@@ -60,6 +60,14 @@ describe('data-for: mount and setup errors', () => {
         expect(errorSpy.mock.calls.flat().join(' ')).toContain('data-show-if');
     });
 
+    it('errors when data-for shares an element with data-component', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const {host} = await mountList([{id: 1}], '<template><ul><li data-for="items" data-key="$item.id" data-component="row"><span></span></li></ul></template>');
+
+        expect(host.querySelectorAll('li')).toHaveLength(0);
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain('data-for cannot be combined with data-show-if or data-component');
+    });
+
     it('errors when the template subtree contains a nested data-for', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const {host} = await mountList([{id: 1}], '<template><ul><li data-for="items" data-key="$item.id"><p data-for="items" data-key="$item.id"></p></li></ul></template>');
@@ -90,6 +98,23 @@ describe('data-for: mount and setup errors', () => {
         app.data.other = 1;
 
         expect(input.value).toBe('typed');
+    });
+
+    it('bans data-value on a non-form element inside items but keeps the rest of the item working', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const template = '<template><ul><li data-for="items" data-key="$item.id"><p data-value="$item.label">static</p><span>${$item.label}</span></li></ul></template>';
+        const {app, host} = await mountList([{id: 1, label: 'a'}], template);
+
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain('only works on form controls');
+        expect(host.querySelector('li span')?.textContent).toBe('a');
+
+        const paragraph = host.querySelector('li p')!;
+
+        expect(paragraph.textContent).toBe('static');
+
+        app.data.other = 1;
+
+        expect(paragraph.textContent).toBe('static');
     });
 
     it('a nested data-for does not register a zombie block (item-scope variant)', async () => {

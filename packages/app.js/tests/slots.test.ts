@@ -101,6 +101,26 @@ describe('content projection (slots)', () => {
         expect(fetchMock.mock.calls.map(call => call[0])).not.toContain('/templates/fallback-widget.html');
     });
 
+    it('two named slots, one filled: only the empty one falls back, and the filled one never fetches its own', async () => {
+        const fetchMock = stubTemplates({
+            root: '<template><div data-component="card"><span data-slot="title">T</span></div></template>',
+            card: `<template><h2><slot name="title"><span data-component="title-fallback"></span></slot></h2><footer><slot name="footer"><span data-component="footer-fallback"></span></slot></footer></template>
+<script>export default {};</script>`,
+            'title-fallback': '<template><em>TF</em></template>\n<script>export default {};</script>',
+            'footer-fallback': '<template><em>FF</em></template>\n<script>export default {};</script>',
+        });
+        const app = new Component({element: mountPoint()});
+        await app.ready;
+
+        const fetched = fetchMock.mock.calls.map(call => call[0]);
+
+        expect(document.querySelector('h2')?.textContent).toBe('T');
+        expect(document.querySelector('h2 [data-component="title-fallback"]')).toBeNull();
+        expect(fetched).not.toContain('/templates/title-fallback.html');
+        expect(document.querySelector('footer [data-component="footer-fallback"] em')?.textContent).toBe('FF');
+        expect(fetched).toContain('/templates/footer-fallback.html');
+    });
+
     it('projected content resolves through the parent scope', async () => {
         stubTemplates({
             root: '<template><div data-component="card">${title}</div></template>',

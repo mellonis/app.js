@@ -136,6 +136,55 @@ describe('data-value write-back routing (issue #24)', () => {
     });
 });
 
+describe('data-value: assignable paths only', () => {
+    it('errors loudly on computed and optional steps and does not bind either input', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({root: '<template><input id="computed" data-value="items[0]"><input id="optional" data-value="user?.name"></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {items: ['before'], user: {name: 'before'}}});
+        await app.ready;
+
+        const dotPathErrors = errorSpy.mock.calls.filter(call => String(call[0]).includes('data-value needs a plain dot path'));
+
+        expect(dotPathErrors).toHaveLength(2);
+
+        const computed = host.querySelector<HTMLInputElement>('#computed')!;
+        const optional = host.querySelector<HTMLInputElement>('#optional')!;
+
+        // No binding means no initial render either
+        expect(computed.value).toBe('');
+        expect(optional.value).toBe('');
+
+        computed.value = 'typed';
+        computed.dispatchEvent(new Event('input'));
+        optional.value = 'typed';
+        optional.dispatchEvent(new Event('input'));
+
+        expect(app.data.items).toEqual(['before']);
+        expect((app.data.user as Record<string, unknown>).name).toBe('before');
+    });
+
+    it('catches and logs a write-back that throws mid-path', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({root: '<template><input data-value="user.address.city"></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {user: {address: undefined}}});
+        await app.ready;
+
+        const input = host.querySelector('input')!;
+
+        input.value = 'typed';
+
+        expect(() => input.dispatchEvent(new Event('input'))).not.toThrow();
+
+        const writeBackErrors = errorSpy.mock.calls.filter(call => String(call[0]).includes('Can\'t write back the "user.address.city" expression'));
+
+        expect(writeBackErrors).toHaveLength(1);
+        expect(writeBackErrors[0]![2]).toBeInstanceOf(TypeError);
+        expect((app.data.user as Record<string, unknown>).address).toBeUndefined();
+    });
+});
+
 describe('data-display-if', () => {
     it('toggles inline display while preserving the original inline value', async () => {
         stubTemplates({root: '<template><p data-display-if="visible" style="display: flex">x</p></template>'});
