@@ -192,6 +192,44 @@ type Node =
     | {kind: 'call'; callee: Node; args: {spread: boolean; expr: Node}[]; paren?: boolean}
     | {kind: 'arrow'; params: string[]; body: Node; paren?: boolean};
 
+// A pathologically nested expression must fail the way every other bad
+// expression does — a caret, a named error, and only the owning directive
+// dropped — instead of exhausting the stack and taking the whole mount with
+// it. Two nesting shapes reach that wall: parenthesised groups recurse in the
+// parser, while chains like a.b.c or 1+1+1 parse in a loop but leave an AST
+// the evaluator recurses over. The parser guards the first, depthOf the
+// second. 200 is far past anything hand-written and far short of the stack.
+const MAX_EXPRESSION_DEPTH = 200;
+
+// Iterative on purpose: a recursive walk would blow the stack on exactly the
+// input this exists to reject
+function depthOf(root: Node): number {
+    const stack: Array<{node: unknown; depth: number}> = [{node: root, depth: 1}];
+    let deepest = 0;
+
+    while (stack.length) {
+        const {node, depth} = stack.pop()!;
+
+        if (depth > deepest) {
+            deepest = depth;
+        }
+
+        if (deepest > MAX_EXPRESSION_DEPTH) {
+            return deepest;
+        }
+
+        Object.values(node as Record<string, unknown>).forEach(value => {
+            if (Array.isArray(value)) {
+                value.forEach(item => stack.push({node: item, depth: depth + 1}));
+            } else if (value !== null && typeof value === 'object') {
+                stack.push({node: value, depth: depth + 1});
+            }
+        });
+    }
+
+    return deepest;
+}
+
 const BLOCKED_KEYS = new Set(['constructor', '__proto__', 'prototype']);
 const NOT_IN_LANGUAGE = new Map([
     ['in', 'The "in" operator is not part of this language'],
@@ -204,6 +242,7 @@ class Parser {
     readonly #source: string;
     readonly #tokens: Token[];
     #index = 0;
+    #depth = 0;
 
     constructor(source: string, tokens: Token[]) {
         this.#source = source;
@@ -271,10 +310,28 @@ class Parser {
             this.#error(`Unexpected "${trailing.value}"`, trailing);
         }
 
+        if (depthOf(node) > MAX_EXPRESSION_DEPTH) {
+            this.#error(`Expression nests too deeply (limit ${MAX_EXPRESSION_DEPTH})`);
+        }
+
         return node;
     }
 
     #parsePipe(): Node {
+        this.#depth += 1;
+
+        if (this.#depth > MAX_EXPRESSION_DEPTH) {
+            this.#error(`Expression nests too deeply (limit ${MAX_EXPRESSION_DEPTH})`);
+        }
+
+        try {
+            return this.#parsePipeBody();
+        } finally {
+            this.#depth -= 1;
+        }
+    }
+
+    #parsePipeBody(): Node {
         let left = this.#parseTernary();
 
         if (this.#is('|>') && left.kind === 'ternary' && !left.paren) {
@@ -430,7 +487,24 @@ class Parser {
         }
     }
 
+    // Recurses into ITSELF for stacked operators (!!x, - -x), never back
+    // through #parsePipe, so it carries the same counter or `!` repeated
+    // enough times still reaches the stack
     #parseUnary(): Node {
+        this.#depth += 1;
+
+        if (this.#depth > MAX_EXPRESSION_DEPTH) {
+            this.#error(`Expression nests too deeply (limit ${MAX_EXPRESSION_DEPTH})`);
+        }
+
+        try {
+            return this.#parseUnaryBody();
+        } finally {
+            this.#depth -= 1;
+        }
+    }
+
+    #parseUnaryBody(): Node {
         if (this.#is('!') || this.#is('-') || this.#is('+')) {
             const op = this.#next().value;
 

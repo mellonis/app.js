@@ -313,3 +313,60 @@ describe('assignable paths', () => {
         expect(compile('a + b')).toBe(compile('a + b'));
     });
 });
+
+describe('sandbox boundary', () => {
+    // The framework advertises that expressions cannot reach a
+    // code-generation API. These are the escapes that would matter, kept as
+    // regressions: each must stay unreachable however it is spelled.
+    it('blocks the code-generation keys on every spelling', () => {
+        // Math/Array stand in for the whitelist the engine's resolver adds —
+        // reaching the guard requires the name to resolve first
+        const vars = {fn: function named() { return 1; }, arr: [1], s: 'a', obj: {}, Math, Array};
+
+        for (const source of [
+            'fn.constructor',
+            'fn["constructor"]',
+            'fn["const" + "ructor"]',
+            'arr.constructor',
+            's.constructor',
+            'Math.constructor',
+            '[].concat.constructor',
+            'fn.__proto__',
+            'fn["__pro" + "to__"]',
+            'obj.__proto__.x',
+            'Array.prototype',
+            'fn.constructor("return globalThis")()',
+        ]) {
+            expect(() => evalWith(source, vars), source).toThrow(/is not reachable from expressions/);
+        }
+    });
+
+    it('reaches no global outside the whitelist', () => {
+        for (const name of ['globalThis', 'window', 'Function', 'eval', 'Object', 'Reflect', 'Symbol', 'process', 'require']) {
+            expect(() => evalWith(name), name).toThrow(/is not defined/);
+        }
+    });
+
+    // A stack overflow is not an ExpressionParseError, so it would escape the
+    // per-directive containment and take the whole mount down with it
+    it('rejects pathological nesting as a parse error instead of exhausting the stack', () => {
+        const vars = {obj: {}, f: (x: unknown) => x};
+
+        for (const source of [
+            '('.repeat(5000) + '1' + ')'.repeat(5000),   // parser recursion
+            'obj' + '.a'.repeat(20000),                  // deep AST, parsed in a loop
+            '!'.repeat(20000) + '1',                     // unary recursing into itself
+            '['.repeat(5000) + ']'.repeat(5000),
+            '1' + ' |> f'.repeat(20000),
+            '1' + '+1'.repeat(50000),
+        ]) {
+            expect(() => evalWith(source, vars), source.slice(0, 12)).toThrow(ExpressionParseError);
+        }
+    });
+
+    it('leaves ordinary nesting well inside the limit', () => {
+        expect(evalWith('((((1 + 2))))', {})).toBe(3);
+        expect(evalWith('a.b.c.d', {a: {b: {c: {d: 7}}}})).toBe(7);
+        expect(evalWith('!!!true', {})).toBe(false);
+    });
+});
