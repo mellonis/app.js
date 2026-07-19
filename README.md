@@ -1,5 +1,80 @@
 # app.js
+
 A tiny reactive framework
+
+# Quick start
+
+Node 22 or newer is required (the framework itself ships no runtime
+dependencies; Node is needed only to build it and to serve the examples).
+
+```sh
+git clone <this repository>
+cd app.js
+npm install        # installs dev deps and builds the framework
+npm run ex:counter      # counter example → http://localhost:8123/
+npm run ex:form         # form-submit example → http://localhost:8123/
+npm run ex:todo         # todo example → http://localhost:8123/
+npm run ex:cards        # slots example → http://localhost:8123/
+npm run ex:registration # registration capstone → http://localhost:8123/
+```
+
+Each example is served as its own web root: `/app.js` is the freshly built framework, `/templates/` belongs to that example alone.
+
+# Hello world
+
+One component, one template. The framework loads `/templates/root.html` for the
+root component, so those two files are the whole app:
+
+```html
+<!-- index.html -->
+<div id="app"></div>
+<script type="module">
+    import Component from '/app.js';
+
+    new Component({
+        element: document.querySelector('#app'),
+        data: {name: 'world', count: 0},
+        methods: {
+            bump() { this.data.count += 1; },
+        },
+    });
+</script>
+```
+
+```html
+<!-- templates/root.html -->
+<template>
+    <h1>Hello, ${name}!</h1>
+    <button data-on-click="bump">clicks: ${count}</button>
+</template>
+```
+
+Everything else in this README is a variation on those pieces: `${}` reads
+state, `data-*` attributes bind behaviour to it, and writing `this.data`
+re-renders whatever read it.
+
+# Where to start
+
+The examples form a ladder — each one introduces the next handful of ideas:
+
+1. **counter** — a component, `${}` interpolation, `data-on-click`, state that
+   re-renders when written.
+2. **form** — two-way `data-value` on text inputs, selects, checkboxes, and a
+   radio group; `data-on-submit`.
+3. **todo** — keyed lists (`data-for` + `data-key`), `data-show-if`, and a
+   single-file child component with props and events.
+4. **cards** — content projection: named and default slots, fallbacks, and
+   parent-owned reactive content (a list, an input, a toggle) living inside a
+   child component's markup.
+5. **registration** — everything at once: a revealed section, repeatable
+   component rows, a submit button gated by `data-disabled-if`, pipes, and
+   real Zod validation.
+
+The registration example is the capstone: a heavier form that puts every recent feature to work at once — checkbox and radio bindings, a checkbox-revealed section, a repeatable list of contacts as per-item single-file components trading props and events with their parent, a submit button gated by `data-disabled-if`, and validation errors painted from a plain array via a method called from an expression. Its schema is validated with [Zod](https://zod.dev) — the framework composes with real libraries; Zod arrives as a plain ES module (`serve.mjs` aliases `/zod.js` to the installed package's own bundle), no bundler involved, and the framework itself stays dependency-free.
+
+Read the framework the same way: `docs/internals.md` is the map, and the git
+history is the long course — the engine grew one reviewed feature at a time,
+and every stage still runs if you check it out.
 
 # Overview
 
@@ -123,61 +198,7 @@ A tiny reactive framework
 - At-rules ride along verbatim: `@media` nests fine; `@keyframes` and `@font-face` are valid, but their names are global — collisions across components are the author's to avoid; `@import` is silently invalid mid-sheet.
 - Template-only includes have no style vocabulary — a `<style>` in a scriptless file is a loud error, and so is one in the root component's own file: root styles belong to the host page's stylesheet. One naming caveat: don't give an SFC the root's `componentName`, and don't mount the root on an element whose `data-component` names an SFC — the root mount would become a scoping root for that type's styles page-wide.
 
-# Where to start
-
-The examples form a ladder — each one introduces the next handful of ideas:
-
-1. **counter** — a component, `${}` interpolation, `data-on-click`, state that
-   re-renders when written.
-2. **form** — two-way `data-value` on text inputs, selects, checkboxes, and a
-   radio group; `data-on-submit`.
-3. **todo** — keyed lists (`data-for` + `data-key`), `data-show-if`, and a
-   single-file child component with props and events.
-4. **cards** — content projection: named and default slots, fallbacks, and
-   parent-owned reactive content (a list, an input, a toggle) living inside a
-   child component's markup.
-5. **registration** — everything at once: a revealed section, repeatable
-   component rows, a submit button gated by `data-disabled-if`, pipes, and
-   real Zod validation.
-
-Read the framework the same way: `docs/internals.md` is the map, and the git
-history is the long course — the engine grew one reviewed feature at a time,
-and every stage still runs if you check it out.
-
-# Quick start
-
-Node 22 or newer is required (the framework itself ships no runtime
-dependencies; Node is needed only to build it and to serve the examples).
-
-```sh
-git clone <this repository>
-cd app.js
-npm install        # installs dev deps and builds the framework
-npm run ex:counter      # counter example → http://localhost:8123/
-npm run ex:form         # form-submit example → http://localhost:8123/
-npm run ex:todo         # todo example → http://localhost:8123/
-npm run ex:cards        # slots example → http://localhost:8123/
-npm run ex:registration # registration capstone → http://localhost:8123/
-```
-
-Each example is served as its own web root: `/app.js` is the freshly built framework, `/templates/` belongs to that example alone.
-
-The registration example is the capstone: a heavier form that puts every recent feature to work at once — checkbox and radio bindings, a checkbox-revealed section, a repeatable list of contacts as per-item single-file components trading props and events with their parent, a submit button gated by `data-disabled-if`, and validation errors painted from a plain array via a method called from an expression. Its schema is validated with [Zod](https://zod.dev) — the framework composes with real libraries; Zod arrives as a plain ES module (`serve.mjs` aliases `/zod.js` to the installed package's own bundle), no bundler involved, and the framework itself stays dependency-free.
-
-# Repository layout
-
-- `packages/app.js` — the framework. TypeScript source in `src/`, tests in `tests/`, build output in `dist/` (generated by `npm run build` and by `npm install`; never committed).
-- `packages/examples` — runnable teaching examples (`counter/`, `form/`, `todo/`, `cards/`, `registration/`) plus `serve.mjs`, a dependency-free static server, and smoke tests that drive the built framework over real HTTP.
-
-# Development
-
-```sh
-npm run build       # compile packages/app.js/src → packages/app.js/dist
-npm run typecheck   # all workspaces
-npm test            # framework unit suite + examples smoke suite
-```
-
-# Styling component wrappers
+### Transparent component wrappers
 
 A `data-component` element is a real box in layout, which gets in the way inside flex or grid containers. A single-file component can make its own wrapper transparent from its `<style>` — the recommended form, since the transparency then ships with the component:
 
@@ -196,3 +217,16 @@ For template-only includes (which have no style vocabulary) and for components y
 ```
 
 Two caveats: the wrapper's own background/border/padding stop rendering, and the page-level rule should target specific components — the app stamps `data-component` on its root element (often `<body>`), which must keep its box; the root component's file must not do this either.
+
+# Repository layout
+
+- `packages/app.js` — the framework. TypeScript source in `src/`, tests in `tests/`, build output in `dist/` (generated by `npm run build` and by `npm install`; never committed).
+- `packages/examples` — runnable teaching examples (`counter/`, `form/`, `todo/`, `cards/`, `registration/`) plus `serve.mjs`, a dependency-free static server, and smoke tests that drive the built framework over real HTTP.
+
+# Development
+
+```sh
+npm run build       # compile packages/app.js/src → packages/app.js/dist
+npm run typecheck   # all workspaces
+npm test            # framework unit suite + examples smoke suite
+```
