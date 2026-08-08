@@ -7,7 +7,7 @@
 // Three caches live here, cleared together by clearCaches(): the raw template
 // text per name, the parsed definition per name, and the one injected <style>
 // element per name.
-import { DEFINITION_KEYS, isMeaningfulNode } from './support.js';
+import { DEFINITION_KEYS, extractTemplateElement, isMeaningfulNode } from './support.js';
 import type { ComponentDefinition } from './support.js';
 
 const templateNameToTemplatePromiseMap = new Map<string, Promise<string>>();
@@ -99,11 +99,7 @@ async function parseDefinition(componentName: string, templateText: string): Pro
 
     divElement.innerHTML = templateText;
 
-    const templateElement = divElement.firstChild;
-
-    if (!(templateElement instanceof HTMLTemplateElement)) {
-        throw new Error('A component template file must have a <template> element as its first child');
-    }
+    const templateElement = extractTemplateElement(divElement);
 
     const meaningfulSiblings: ChildNode[] = [];
 
@@ -139,7 +135,27 @@ async function parseDefinition(componentName: string, templateText: string): Pro
     // Whitespace-only style text is absent CSS, not an empty injection
     const css = styleText.trim() ? styleText : undefined;
 
-    const moduleUrl = 'data:text/javascript;charset=utf-8,' + encodeURIComponent(scriptElement.textContent ?? '');
+    const scriptSrc = scriptElement.getAttribute('src');
+    let moduleUrl: string;
+
+    if (scriptSrc !== null) {
+        if ((scriptElement.textContent ?? '').trim()) {
+            throw new Error(`The "${componentName}" component's <script> carries both src and inline code — keep the code in one place`);
+        }
+
+        if (!scriptSrc.trim()) {
+            throw new Error(`The "${componentName}" component's <script src> is empty — name the module file it should load`);
+        }
+
+        // A real module file, resolved against the component file's own URL
+        // so a relative src ("./name.js") names a sibling of its template.
+        // This is the loading path for apps with a strict script-src CSP,
+        // which blocks the data: import below.
+        moduleUrl = new URL(scriptSrc, new URL(`/templates/${componentName}.html`, document.baseURI)).href;
+    } else {
+        moduleUrl = 'data:text/javascript;charset=utf-8,' + encodeURIComponent(scriptElement.textContent ?? '');
+    }
+
     const module = await import(/* @vite-ignore */ moduleUrl);
     const exported = module.default as ComponentDefinition;
 

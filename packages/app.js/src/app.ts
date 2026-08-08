@@ -5,11 +5,13 @@ import {
     COMPONENT_DESTROYED_MESSAGE,
     DATA_DISABLED_IF_MESSAGE,
     DATA_ON_ATTRIBUTE_NAME_PATTERN,
+    DATA_SRC_SCRIPT_MESSAGE,
     DATA_VALUE_FORM_ONLY_MESSAGE,
     DEFAULT_SLOT_NAME,
     directiveAnchorComments,
     DISABLEABLE_TAG_NAMES,
     EXPRESSION_GLOBALS,
+    extractTemplateElement,
     FORM_CONTROL_TAG_NAMES,
     isContentNode,
     isValidPropName,
@@ -466,6 +468,71 @@ export default class Component {
         }
     }
 
+    // A subtree detached by a falsy data-show-if is invisible AND inert: no
+    // binding under it — or on the hidden element itself, beyond its own
+    // gate — evaluates while it is down, so an absent-data guard belongs in
+    // the visibility condition, not in every descendant expression.
+    // #showElement marks the whole subtree dirty on re-entry, so skipped
+    // bindings catch up the moment they can be seen. Same-instance scope
+    // only: a child component drains on its own and keeps rendering while a
+    // parent's subtree is down. The walk stops at the detached subtree's
+    // root because a hidden element's parentNode is null — and consulting
+    // the show-if map (not the attribute) keeps unwired carriers inert.
+    #isUnderHiddenSubtree(node: Node, includeSelf: boolean): boolean {
+        for (let current = includeSelf ? node : node.parentNode; current; current = current.parentNode) {
+            if (current instanceof HTMLElement && this.#showIfElementToDataMap.get(current)?.isHidden) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Wakes every binding whose bound node lives inside a just-reattached
+    // subtree. Unconditional, like the list reconciler's per-entry marking:
+    // a binding skipped while hidden may have EMPTY subscriptions (one first
+    // seen hidden has never run at all), so no write can be trusted to reach
+    // it — containment is the only honest wake-up signal. A nested show-if
+    // that is itself still hidden contributes its anchor here (so its gate
+    // re-arms) while its own subtree stays down until that gate flips.
+    #markSubtreeBindingsDirty(root: HTMLElement): void {
+        this.#forBlocks.forEach(block => {
+            if (root.contains(block.anchorEnd)) {
+                this.#dirtyBindings.add(block.binding);
+            }
+        });
+        this.#showIfElementToDataMap.forEach((entry, element) => {
+            if (element !== root && root.contains(entry.isHidden ? entry.anchor : element)) {
+                this.#dirtyBindings.add(entry.binding);
+            }
+        });
+        this.#displayIfElementToDataMap.forEach((entry, element) => {
+            if (root.contains(element)) {
+                this.#dirtyBindings.add(entry.binding);
+            }
+        });
+        this.#disabledIfElementToDataMap.forEach((entry, element) => {
+            if (root.contains(element)) {
+                this.#dirtyBindings.add(entry.binding);
+            }
+        });
+        this.#valueElementToDataMap.forEach((entry, element) => {
+            if (root.contains(element)) {
+                this.#dirtyBindings.add(entry.binding);
+            }
+        });
+        this.#srcElementToDataMap.forEach((entry, element) => {
+            if (root.contains(element)) {
+                this.#dirtyBindings.add(entry.binding);
+            }
+        });
+        this.#textNodeToDataMap.forEach((entry, node) => {
+            if (root.contains(node)) {
+                this.#dirtyBindings.add(entry.binding);
+            }
+        });
+    }
+
     // --------------------------------------------------- binding bookkeeping
 
     // Every binding kind's own map still holds the live entry for its
@@ -665,6 +732,19 @@ export default class Component {
             return;
         }
 
+        // Eager validation: every expression inside the item template
+        // compiles NOW, at template load. Without this, a malformed
+        // expression in a block whose list stays empty never surfaces at
+        // all, and one whose list does render is reported once per clone.
+        // Every failure is loud (caret and all), and any failure drops the
+        // whole block — the block is the unit that owns its item template,
+        // exactly as its own list/key expressions already fail above.
+        if (!this.#validateItemTemplateExpressions(element)) {
+            element.remove();
+
+            return;
+        }
+
         const anchorStart = document.createComment(' data-for start ');
         const anchorEnd = document.createComment(' data-for end ');
 
@@ -690,6 +770,65 @@ export default class Component {
 
         block.binding = {kind: 'block', block, dependencies: new Set()};
         this.#forBlocks.add(block);
+    }
+
+    // Compiles every expression the item template carries — interpolations,
+    // directive attributes, component prop expressions — reporting each
+    // failure. data-for/data-key on the root are the caller's own and are
+    // compiled there; data-on-* values are method names, not expressions.
+    #validateItemTemplateExpressions(root: HTMLElement): boolean {
+        let valid = true;
+
+        collectTextNodes(root).forEach(textNode => {
+            const text = textNode.textContent ?? '';
+
+            if (!text.includes('${')) {
+                return;
+            }
+
+            let parts: TextPart[];
+
+            try {
+                parts = splitInterpolations(text);
+            } catch (error) {
+                console.error('Unmatched ${ in template text', textNode, error);
+                valid = false;
+
+                return;
+            }
+
+            parts.forEach(part => {
+                if (part.isExpression && !this.#compileAtWiring(part.value, textNode)) {
+                    valid = false;
+                }
+            });
+        });
+
+        const expressionDatasetKeys = ['showIf', 'displayIf', 'disabledIf', 'src', 'value'];
+
+        [root, ...root.querySelectorAll<HTMLElement>('*')].forEach(element => {
+            expressionDatasetKeys.forEach(datasetKey => {
+                const expression = element.dataset[datasetKey];
+
+                if (expression !== undefined && !this.#compileAtWiring(expression, element)) {
+                    valid = false;
+                }
+            });
+
+            Object.keys(element.dataset).forEach(datasetKey => {
+                // Same key shape #collectProps accepts — malformed prop
+                // NAMES stay its call to report
+                if (!/^componentProp[A-Z]/.test(datasetKey)) {
+                    return;
+                }
+
+                if (!this.#compileAtWiring(element.dataset[datasetKey]!, element)) {
+                    valid = false;
+                }
+            });
+        });
+
+        return valid;
     }
 
     #wireItemElement(root: HTMLElement, block: ForBlock, key: string): (HTMLElement | Text)[] {
@@ -788,6 +927,12 @@ export default class Component {
             }
 
             if (!this.#compileAtWiring(element.dataset['src']!, element)) {
+                return;
+            }
+
+            if (element.tagName === 'SCRIPT') {
+                console.error(DATA_SRC_SCRIPT_MESSAGE, element);
+
                 return;
             }
 
@@ -934,6 +1079,10 @@ export default class Component {
     // wake-up signal, and the array self-assign hatch means "same reference,
     // mutated contents", which only this unconditional marking can catch
     #reconcileTrackedBlock(block: ForBlock): void {
+        if (this.#isUnderHiddenSubtree(block.anchorEnd, true)) {
+            return;
+        }
+
         const errorKindsThisPass = new Set<string>();
         let items: unknown;
         let listFailed = false;
@@ -1281,10 +1430,12 @@ export default class Component {
 
         divElement.innerHTML = template;
 
-        const templateElement = divElement.firstChild;
+        let templateElement: HTMLTemplateElement;
 
-        if (!(templateElement instanceof HTMLTemplateElement)) {
-            return Promise.reject(new Error('A component template file must have a <template> element as its first child'));
+        try {
+            templateElement = extractTemplateElement(divElement);
+        } catch (error) {
+            return Promise.reject(error);
         }
 
         // The root component's file never passes through definition parsing,
@@ -1621,6 +1772,12 @@ export default class Component {
                 return;
             }
 
+            if (element.tagName === 'SCRIPT') {
+                console.error(DATA_SRC_SCRIPT_MESSAGE, element);
+
+                return;
+            }
+
             this.#srcElementToDataMap.set(element, {
                 expression: element.dataset['src']!,
                 binding: {kind: 'src', element, dependencies: new Set()},
@@ -1776,6 +1933,10 @@ export default class Component {
         if (entry.isHidden) {
             entry.anchor.replaceWith(element);
             entry.isHidden = false;
+            // Everything below (and on) this element sat out the drains
+            // while it was down — the fresh dirty set picks these up on the
+            // drain loop's next iteration
+            this.#markSubtreeBindingsDirty(element);
         }
     }
 
@@ -1852,7 +2013,7 @@ export default class Component {
     #updateOneValue(element: HTMLElement): void {
         const entry = this.#valueElementToDataMap.get(element);
 
-        if (!entry) {
+        if (!entry || this.#isUnderHiddenSubtree(element, true)) {
             return;
         }
 
@@ -1904,7 +2065,7 @@ export default class Component {
     #updateOneSrc(element: HTMLElement): void {
         const entry = this.#srcElementToDataMap.get(element);
 
-        if (!entry) {
+        if (!entry || this.#isUnderHiddenSubtree(element, true)) {
             return;
         }
 
@@ -1920,9 +2081,10 @@ export default class Component {
 
         // No write-back, so no value-equality skip to guard: unlike
         // data-value's input.value, setAttribute has no caret to disturb —
-        // null/undefined removes the attribute so an <img> never falls back
-        // to fetching the page URL
-        if (newValue === null || newValue === undefined) {
+        // null/undefined/'' removes the attribute so an <img> never falls
+        // back to fetching the page URL (browsers resolve src="" against the
+        // document base; there is no legitimate empty src)
+        if (newValue === null || newValue === undefined || newValue === '') {
             element.removeAttribute('src');
         } else {
             element.setAttribute('src', String(newValue));
@@ -1932,7 +2094,7 @@ export default class Component {
     #updateOneText(node: Text): void {
         const entry = this.#textNodeToDataMap.get(node);
 
-        if (!entry) {
+        if (!entry || this.#isUnderHiddenSubtree(node, true)) {
             return;
         }
 
@@ -1952,7 +2114,10 @@ export default class Component {
     #updateOneShowIf(element: HTMLElement): void {
         const entry = this.#showIfElementToDataMap.get(element);
 
-        if (!entry) {
+        // includeSelf false: an element's own gate must keep evaluating
+        // while IT is the hidden one, or nothing could ever re-show it —
+        // only an ANCESTOR's hidden state puts this binding to sleep
+        if (!entry || this.#isUnderHiddenSubtree(element, false)) {
             return;
         }
 
@@ -1976,7 +2141,7 @@ export default class Component {
     #updateOneDisplayIf(element: HTMLElement): void {
         const entry = this.#displayIfElementToDataMap.get(element);
 
-        if (!entry) {
+        if (!entry || this.#isUnderHiddenSubtree(element, true)) {
             return;
         }
 
@@ -1996,7 +2161,7 @@ export default class Component {
     #updateOneDisabledIf(element: HTMLElement): void {
         const entry = this.#disabledIfElementToDataMap.get(element);
 
-        if (!entry) {
+        if (!entry || this.#isUnderHiddenSubtree(element, true)) {
             return;
         }
 

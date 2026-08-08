@@ -1,3 +1,5 @@
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import Component from '../src/app';
 import { mountPoint, resetTemplateCache, settle, stubTemplates } from './helpers';
@@ -41,6 +43,56 @@ describe('single-file components', () => {
 
         expect(a.querySelector('p')?.textContent).toBe('Count: 2');
         expect(b.querySelector('p')?.textContent).toBe('Count: 0');
+    });
+
+    it('loads a component script from <script src> — the strict-CSP path (issue #35)', async () => {
+        // Built via node:url, NOT as new URL('...', import.meta.url) — Vite
+        // statically rewrites that exact pattern into a served-base URL
+        const scriptUrl = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), 'fixtures', 'external-field.mjs')).href;
+
+        stubTemplates({
+            root: '<template><div data-component="external"></div></template>',
+            external: `<template><p>\${label}</p></template><script src="${scriptUrl}"></script>`,
+        });
+        const host = mountPoint();
+        const app = new Component({element: host});
+        await app.ready;
+
+        expect(host.querySelector('p')?.textContent).toBe('from external');
+    });
+
+    it('rejects a component whose <script> carries both src and inline code (issue #35)', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({
+            root: '<template><div data-component="broken"></div></template>',
+            broken: '<template><p>x</p></template><script src="./broken.js">export default {};</script>',
+        });
+        const app = new Component({element: mountPoint()});
+
+        await expect(app.ready).rejects.toEqual(new Error('The "broken" component\'s <script> carries both src and inline code — keep the code in one place'));
+    });
+
+    it('rejects a component whose <script src> is empty (issue #35)', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        stubTemplates({
+            root: '<template><div data-component="broken"></div></template>',
+            broken: '<template><p>x</p></template><script src=" "></script>',
+        });
+        const app = new Component({element: mountPoint()});
+
+        await expect(app.ready).rejects.toEqual(new Error('The "broken" component\'s <script src> is empty — name the module file it should load'));
+    });
+
+    it('a component file may open with a header comment before its <template> (issue #35)', async () => {
+        stubTemplates({
+            root: '<template><div data-component="counter"></div></template>',
+            counter: `<!-- counter: a header comment must not break parsing -->\n${COUNTER_SFC}`,
+        });
+        const host = mountPoint();
+        const app = new Component({element: host});
+        await app.ready;
+
+        expect(host.querySelector('p')?.textContent).toBe('Count: 0');
     });
 
     it('template-only files keep legacy include semantics (shared root data)', async () => {

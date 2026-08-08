@@ -258,6 +258,37 @@ export function isMeaningfulNode(node: Node): boolean {
     return true;
 }
 
+function describeNode(node: Node): string {
+    if (node instanceof Element) {
+        return `<${node.tagName.toLowerCase()}>`;
+    }
+
+    const text = (node.textContent ?? '').trim();
+
+    return `the text "${text.length > 40 ? `${text.slice(0, 40)}…` : text}"`;
+}
+
+// A component file may open with comments or blank lines (a file header is
+// legitimate); the first MEANINGFUL node must be the <template> element.
+// When it is not, the error names what was found — a generic "must have a
+// template" with no culprit reads as a silent failure to the author who
+// cannot see which stray node broke the file.
+export function extractTemplateElement(container: ParentNode): HTMLTemplateElement {
+    for (const node of Array.from(container.childNodes)) {
+        if (!isMeaningfulNode(node)) {
+            continue;
+        }
+
+        if (node instanceof HTMLTemplateElement) {
+            return node;
+        }
+
+        throw new Error(`A component template file must start with its <template> element — found ${describeNode(node)} instead`);
+    }
+
+    throw new Error('A component template file must start with its <template> element — the file has none');
+}
+
 // Every ${} interpolation's bound Text node, across every component instance
 // — a bound node starts life empty (its first drain hasn't run yet) and
 // binding bookkeeping is otherwise private to whichever instance owns it, so
@@ -297,6 +328,10 @@ export const FORM_CONTROL_TAG_NAMES = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
 export const DATA_VALUE_FORM_ONLY_MESSAGE = 'data-value only works on form controls (input, textarea, select) — use ${expression} interpolation to display text';
 export const DISABLEABLE_TAG_NAMES = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON']);
 export const DATA_DISABLED_IF_MESSAGE = 'data-disabled-if only works on elements that honor disabled (input, textarea, select, button)';
+// src is meaningful on many tags (img, audio, video, source, track, iframe,
+// embed…) and stays allowed on all of them — <script> alone is forbidden: a
+// data expression must never choose which code the page runs
+export const DATA_SRC_SCRIPT_MESSAGE = 'data-src cannot drive a <script> element — an expression must not pick executable code; ship the code as a component of its own instead';
 // Kebab suffix IS the event type, verbatim — HTML lowercases attribute names,
 // so case-sensitive event types are inexpressible here (irrelevant for
 // element-level DOM events, which are all-lowercase)

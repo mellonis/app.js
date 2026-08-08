@@ -76,6 +76,35 @@ describe('data-for: mount and setup errors', () => {
         expect(errorSpy.mock.calls.flat().join(' ')).toContain('nested');
     });
 
+    it('reports a directive parse error inside a never-rendered item template at load and drops the block (issue #35)', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const {app, host} = await mountList([], '<template><ul><li data-for="items" data-key="$item.id"><b data-show-if="$item.done == 1">x</b></li></ul><i>${other}</i></template>');
+
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain('loose equality is not part of this language');
+        expect(host.querySelector('i')?.textContent).toBe('0');
+
+        app.data.items = [{id: 1, done: 1}];
+        await app.updated();
+
+        expect(host.querySelectorAll('li')).toHaveLength(0);
+    });
+
+    it('reports an interpolation parse error inside an item template at load (issue #35)', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const {host} = await mountList([], '<template><ul><li data-for="items" data-key="$item.id"><span>${$item.label ==}</span></li></ul></template>');
+
+        expect(host.querySelectorAll('li')).toHaveLength(0);
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain("Can't parse");
+    });
+
+    it('reports a prop expression parse error inside an item template at load (issue #35)', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const {host} = await mountList([], '<template><ul><li data-for="items" data-key="$item.id"><div data-component="row" data-component-prop-item="$item foo"></div></li></ul></template>');
+
+        expect(host.querySelectorAll('li')).toHaveLength(0);
+        expect(errorSpy.mock.calls.flat().join(' ')).toContain("Can't parse");
+    });
+
     it('errors and renders empty when the expression is not an array', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const {host} = await mountList(0 as unknown as unknown[], LIST_TEMPLATE.replace('"items"', '"other"'));

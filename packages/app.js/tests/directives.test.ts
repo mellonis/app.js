@@ -793,3 +793,92 @@ describe('data-on-*: binds any DOM event by name (issue #20)', () => {
         expect(hit).toHaveBeenCalledTimes(1);
     });
 });
+
+describe('data-show-if: a hidden subtree is inert (issue #35)', () => {
+    it('does not evaluate bindings under a hidden subtree — no guards needed against absent data', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        stubTemplates({root: '<template><div data-show-if="items.length > 0"><b>${items[0].label}</b></div></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {items: []}});
+        await app.ready;
+
+        expect(host.querySelector('b')).toBeNull();
+        expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it('catches the subtree up the moment it is shown', async () => {
+        stubTemplates({root: '<template><div data-show-if="items.length > 0"><b>${items[0].label}</b></div></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {items: []}});
+        await app.ready;
+
+        app.data.items = [{label: 'first'}];
+        await app.updated();
+
+        expect(host.querySelector('b')?.textContent).toBe('first');
+    });
+
+    it('skips a data-for block while its subtree is hidden and reconciles it on show', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        stubTemplates({root: '<template><div data-show-if="visible"><ul><li data-for="items" data-key="$item.id">${$item.label}</li></ul></div></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {visible: true, items: [{id: 1, label: 'a'}]}});
+        await app.ready;
+
+        expect(host.querySelectorAll('li')).toHaveLength(1);
+
+        app.data.visible = false;
+        await app.updated();
+
+        app.data.items = 0;
+        await app.updated();
+
+        expect(errorSpy).not.toHaveBeenCalled();
+
+        app.data.items = [{id: 1, label: 'a'}, {id: 2, label: 'b'}];
+        app.data.visible = true;
+        await app.updated();
+
+        expect([...host.querySelectorAll('li')].map(li => li.textContent)).toEqual(['a', 'b']);
+        expect(errorSpy).not.toHaveBeenCalled();
+    });
+
+    it('a nested data-show-if that flipped while hidden lands correctly on show', async () => {
+        stubTemplates({root: '<template><div data-show-if="outer"><p data-show-if="inner">secret</p></div></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {outer: true, inner: true}});
+        await app.ready;
+
+        expect(host.querySelector('p')).not.toBeNull();
+
+        app.data.outer = false;
+        await app.updated();
+
+        app.data.inner = false;
+        await app.updated();
+
+        app.data.outer = true;
+        await app.updated();
+
+        expect(host.querySelector('p')).toBeNull();
+    });
+
+    it('other directives on the hidden element itself are skipped and catch up on show', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+        stubTemplates({root: '<template><img data-show-if="photo" data-src="photo.url"></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host, data: {photo: null}});
+        await app.ready;
+
+        expect(errorSpy).not.toHaveBeenCalled();
+
+        app.data.photo = {url: '/photo/1'};
+        await app.updated();
+
+        expect(host.querySelector('img')?.getAttribute('src')).toBe('/photo/1');
+        expect(errorSpy).not.toHaveBeenCalled();
+    });
+});

@@ -39,7 +39,7 @@ export function createGhost(data: Record<string, unknown>, hooks: GhostHooks, pr
                 // and, being an equal object reference, always notifies
                 set(newValue: unknown) {
                     if (newValue !== nestedGhost) {
-                        throw new TypeError(`The "${key}" object cannot be replaced wholesale — mutate its keys, then assign it to itself to update`);
+                        throw new TypeError(`The "${key}" object cannot be replaced wholesale — a field's reactive shape is fixed by its initial value. Mutate its keys and assign it to itself to update, or seed the key as null at construction to keep it replaceable`);
                     }
 
                     hooks.notify(path);

@@ -72,14 +72,14 @@ describe('ghost reactivity', () => {
         }).toThrow(TypeError);
     });
 
-    it('does not allow replacing a nested object wholesale', async () => {
+    it('does not allow replacing a nested object wholesale, and the error teaches both idioms (issue #35)', async () => {
         stubTemplates({root: '<template></template>'});
         const app = new Component({element: mountPoint(), data: {user: {name: 'Ada'}}});
         await flush();
 
         expect(() => {
             (app.data as Record<string, unknown>).user = {name: 'Grace'};
-        }).toThrow(TypeError);
+        }).toThrow(new TypeError('The "user" object cannot be replaced wholesale — a field\'s reactive shape is fixed by its initial value. Mutate its keys and assign it to itself to update, or seed the key as null at construction to keep it replaceable'));
     });
 
     it('stores an assigned element as-is — no value extraction magic (issue #15)', async () => {

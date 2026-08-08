@@ -116,13 +116,23 @@ describe('component loading', () => {
         await expect(app.ready).rejects.toEqual(new Error('404: /templates/root.html'));
     });
 
-    it('rejects a template file whose first child is not a <template> element', async () => {
+    it('rejects a template file that does not start with a <template> element, naming the culprit', async () => {
         const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         stubTemplates({root: '<div>not a template</div>'});
         new Component({element: mountPoint()});
 
         await vi.waitFor(() => {
-            expect(errorSpy.mock.calls.flat().join(' ')).toContain('A component template file must have a <template> element as its first child');
+            expect(errorSpy.mock.calls.flat().join(' ')).toContain('A component template file must start with its <template> element — found <div> instead');
         });
+    });
+
+    it('tolerates comments and whitespace before the <template> element (issue #35)', async () => {
+        stubTemplates({root: '<!-- the natural place for a file header -->\n<template><span class="r">mounted</span></template>'});
+        const host = mountPoint();
+        const app = new Component({element: host});
+
+        await app.ready;
+
+        expect(host.querySelector('.r')).not.toBeNull();
     });
 });
