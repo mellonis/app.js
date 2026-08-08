@@ -83,6 +83,16 @@ would loop forever; after 64 iterations the drain stops and logs an error
 naming that exact mistake. That error replacing a stack overflow is the whole
 design in miniature: fail loudly, teach the cause, keep the page alive.
 
+A subtree detached by a falsy `data-show-if` is not just invisible — it is
+inert: the drain skips every binding under it, and every other binding on the
+hidden element itself, leaving only the element's own gate evaluating (someone
+has to notice the flip back). `#showElement` marks the whole subtree dirty on
+re-entry, so skipped bindings — including ones that have never run at all and
+so subscribe to nothing — catch up inside the same flush. The scope is one
+instance: a child component drains on its own and keeps rendering while a
+parent's subtree is down. Read `#isUnderHiddenSubtree` and
+`#markSubtreeBindingsDirty` (app.ts) beside `#showElement`.
+
 Two-way inputs get one subtlety: the drain skips writing any form control
 whose current state already equals what it would write. During typing that is
 precisely the input you are typing into — its caret survives — and a derived
@@ -140,7 +150,10 @@ best single file in the repository to study.
 
 A component file whose `<template>` is followed by a `<script>` mounts as a
 full child instance: its own ghost, its own graph, its own flush, its own
-`destroy()`. The script becomes a real ES module via a `data:` URL import,
+`destroy()`. An inline script becomes a real ES module via a `data:` URL
+import; a `<script src="./name.js">` imports that file directly, resolved
+against the component file's own URL — the form that survives a strict
+`script-src` CSP, which blocks `data:` imports. Either way the module is
 evaluated once per component type and cached; per-instance state comes from
 the `data` factory. Props are a separate getters-only store seeded and
 re-seeded by the parent (one batched `props` event per change set); events

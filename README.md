@@ -73,6 +73,12 @@ The examples form a ladder — each one introduces the next handful of ideas:
 6. **registration** — everything at once: a revealed section, repeatable
    component rows, a submit button gated by `data-disabled-if`, pipes, and
    real Zod validation.
+7. **csp** — the same framework under `script-src 'self'`: the boot script is
+   a real file, the child component's code loads through
+   `<script src="./tally.js">`, and a `data-src` badge cycles bundled SVGs —
+   nothing on the page needs `unsafe-inline`, `unsafe-eval`, or `data:`.
+   (The smoke test drives the page shape; the policy itself is enforced when
+   you open it in a real browser.)
 
 The registration example is the capstone: a heavier form that puts every recent feature to work at once — checkbox and radio bindings, a checkbox-revealed section, a repeatable list of contacts as per-item single-file components trading props and events with their parent, a submit button gated by `data-disabled-if`, and validation errors painted from a plain array via a method called from an expression. Its schema is validated with [Zod](https://zod.dev) — the framework composes with real libraries; Zod arrives as a plain ES module (`serve.mjs` aliases `/zod.js` to the installed package's own bundle), no bundler involved, and the framework itself stays dependency-free.
 
@@ -83,7 +89,7 @@ and every stage still runs if you check it out.
 # Overview
 
 - Templates should be placed in /templates directory
-- Meaningful attributes in templates are: data-component, data-show-if, data-display-if, data-disabled-if, data-value, data-on-*, data-for + data-key, data-ref, data-slot
+- Meaningful attributes in templates are: data-component, data-show-if, data-display-if, data-disabled-if, data-value, data-src, data-on-*, data-for + data-key, data-ref, data-slot
 - `new Component({element, data, methods, componentName})` — every option has a default (`document.body`, `{}`, `{}`, and `'root'`), so all four are optional
 - A Component instance exposes `ready` — a promise that resolves when the initial mount finishes (and rejects with the original error if it fails). The initial render is already in the DOM when `ready` resolves — mount is not batched, so there is no `updated()` to await after it
 - `app.destroy()` stops the app: listeners are removed (one `AbortController` for everything), updates stop, the rendered DOM stays as-is
@@ -91,6 +97,7 @@ and every stage still runs if you check it out.
 - Template text supports `${expression}` interpolation (escape a literal with `\${`)
 - Lists render with `data-for` (a bare array expression) plus a required `data-key`; item expressions see `$item`, `$index`, `$array`
 - Arrays update by replacement: `todos = [...todos, item]` — prefer copy-based expressions like `todos.filter(...)` / `[...todos].sort(...)`
+- `data-src="expression"` binds an element's `src` attribute (interpolation is text-only, so `<img src="${url}">` has no meaning): the attribute follows the expression's string value and is removed outright when the value is `null`, `undefined`, or `''` — an empty `src` would make the browser fetch the page itself. Any src-bearing element works, except `<script>`: a reactive expression must not pick executable code, and that one is a loud error
 - File inputs are never value-bound — a browser won't let script set `.files`, so `data-value` on `type="file"` is a loud error. Handle the `change` event directly and store only what you need from it:
 
   ```html
@@ -110,15 +117,17 @@ and every stage still runs if you check it out.
 - `await app.updated()` resolves once that pending render has settled onto the DOM — *this* component's render. Reach for it right after a write, in a test or inside a method, whenever you need to read the DOM back. If the write feeds a prop of a child component, the child re-renders on its own later microtask, so reading DOM that the **child** paints needs one more turn of the event loop after the `await` (`await new Promise(resolve => setTimeout(resolve))`). Everything your own template's bindings paint is settled as soon as `updated()` returns.
 - Writing the same value a key already holds is free: a primitive (or `null`) write that doesn't actually change anything renders nothing at all.
 - Arrays and plain objects still update by replacement, but mutating one in place and then reassigning the very same reference is a sanctioned escape hatch that does render: `data.todos = data.todos` after pushing into it in place, `data.user = data.user` after editing one of its keys, or reassigning partway down a chain (`data.user.address = data.user.address`) all work. Replacing a plain object with a genuinely different one is still a loud error — only self-assignment is allowed there.
+- The rule behind that error: **a field's reactive shape is fixed by its initial value**, and the data shape itself is fixed at construction — keys can never be added later. A key seeded with a plain object becomes a nested reactive object and stays replace-only for life; a key seeded with `null` (or any non-object) stays a leaf you can freely replace — including with a whole fetched payload. A view that refetches server data wants exactly that: seed every payload field as `null` (`data: {status: null, messages: null}`) and assign each response wholesale on every load. Reserve object seeds for state whose keys you edit in place — declare every key it will ever hold up front, then publish a batch of edits with the self-assignment hatch.
 - Inside a method, the idiom for "write, then read the DOM back" is: write `this.data`, `await this.updated()`, then read `this.refs` — your own elements are guaranteed settled by the time that `await` returns. (A child component you passed new props to is not: it flushes on its own later microtask.)
+- A subtree hidden by `data-show-if` is inert, not just invisible: nothing under it (including other directives on the hidden element itself) evaluates while it is down, so the guard against absent data lives in the visibility condition alone — no need for `?.` in every inner expression. The subtree catches up the moment it is shown. A child component inside a hidden subtree is the exception: it drains on its own and keeps rendering.
 
 # Expressions
 
 - Every directive attribute and every `${...}` placeholder shares one small expression language: numbers, strings, booleans, `null`/`undefined`, array literals with spreads; property access via `.`, `[]`, and `?.`; function calls; arrow functions; arithmetic (`+ - * / %`); comparison (`< <= > >=`) and strict equality (`=== !==`); the unary operators `!`, `-`, `+`, and `typeof`; ternaries and logical operators (`&&`, `||`, `??`); and `|>` pipes. There is no assignment and no statements. That stops an expression from *writing* a name, but it does not make one pure: a method you call can do anything, and the built-in mutators are reachable — `${todos.sort()}` really does reorder `todos` itself. Worse than the edit is its invisibility: an in-place mutation never notifies the ghost, so the framework does not know state changed and schedules nothing — what any given binding shows then depends on whether it happened to run after the mutation. Keep expressions to reads and copy-based calls (`[...todos].sort()`, `todos.filter(...)`); do the mutating in a method.
 - Names resolve through one fixed chain: item scope inside a `data-for` (`$item`, `$index`, `$array`) → component props → `data` → `methods` → a small whitelist of globals (`Math`, `JSON`, `Number`, `String`, `Boolean`, `Array`, `isNaN`, `isFinite`, `parseInt`, `parseFloat`).
 - A pipe calls its right side with its left side as the sole argument, so a formatter is just a method: `<p>${todos |> left} left</p>` calls `methods.left(todos)` and renders the count.
-- A malformed expression is caught when the template loads, not when it renders — the console gets the expression text with a caret under the character that broke parsing.
-- Expressions are parsed and evaluated by the framework itself — no `eval`, no `unsafe-eval` CSP requirement; loading component `<script>`s still uses `data:` module imports.
+- A malformed expression is caught when the template loads, not when it renders — the console gets the expression text with a caret under the character that broke parsing. That includes expressions inside a `data-for` item template that has not rendered yet (even one whose list stays empty): every expression in the block compiles at load, and any parse failure is reported and drops the whole block.
+- Expressions are parsed and evaluated by the framework itself — no `eval`, no `unsafe-eval` CSP requirement. Loading a component's inline `<script>` uses a `data:` module import; under a strict `script-src` give the script a `src` instead (see Components) and no `data:` allowance is needed.
 - What that sandbox does and does not promise: `constructor`, `__proto__` and `prototype` are blocked on every property access, and only a fixed whitelist of globals resolves, so an expression cannot reach `Function` or `eval` — verified against the obvious escapes. It is NOT a boundary against hostile templates: templates are yours, and an expression can still call whatever your `data` and `methods` expose. Nesting is capped (200 levels) so a pathological expression fails as a parse error rather than exhausting the stack and taking the mount with it.
 
 # Components
@@ -147,7 +156,7 @@ and every stage still runs if you check it out.
 - The emitting half lives on `this.events` inside a component's `<script>`: `emit(name, payload)` fires an event the parent can catch with `data-component-on-<name>`, `on(name, handler)` listens to the component's own emitter, and `onParent(name, handler)` listens to the parent's. The payload arrives as the event's `detail`. `'props'` is reserved — the framework emits it when props are re-seeded, so a component cannot emit it. Every subscription is torn down with the component.
 - A prop whose name collides with a key in the component's own `data` is a loud error that rejects that instance: props are inputs, and a name cannot mean two things at once.
 - `data-ref="name"` collects an element into `refs`. Two rules: a duplicate name is a loud error and the first element wins, and `data-ref` inside a `data-for` item is a loud error — per-item elements have no single stable name, so reach them through the item component instead.
-- `data:` module imports (how a component's `<script>` is loaded) require a CSP without a strict `script-src` — fine for the teaching context.
+- An inline component `<script>` is loaded through a `data:` module import, which a strict `script-src` (e.g. `'self'`) blocks. The strict-CSP form is `<script src="./name.js"></script>` — an ordinary module file resolved against the component file's own URL, so a relative `src` names a sibling of the template. One place for the code, not both: a `<script>` carrying both `src` and inline code is a loud error.
 - Student trap: component events always ride the `data-component-` prefix — `data-on-removed` on a component element binds a DOM event that will never fire.
 
 ## Slots (content projection)
@@ -225,7 +234,7 @@ Two caveats: the wrapper's own background/border/padding stop rendering, and the
 # Repository layout
 
 - `packages/app.js` — the framework. TypeScript source in `src/`, tests in `tests/`, build output in `dist/` (generated by `npm run build` and by `npm install`; never committed).
-- `packages/examples` — runnable teaching examples (`counter/`, `form/`, `todo/`, `cards/`, `profile/`, `registration/`) plus `serve.mjs`, a dependency-free static server, and smoke tests that drive the built framework over real HTTP.
+- `packages/examples` — runnable teaching examples (`counter/`, `form/`, `todo/`, `cards/`, `profile/`, `registration/`, `csp/`) plus `serve.mjs`, a dependency-free static server, and smoke tests that drive the built framework over real HTTP.
 
 # Development
 
