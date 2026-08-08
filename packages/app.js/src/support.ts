@@ -26,6 +26,7 @@ export type TrackedBinding =
     | {kind: 'display'; element: HTMLElement; dependencies: Set<string>}
     | {kind: 'disabled'; element: HTMLElement; dependencies: Set<string>}
     | {kind: 'value'; element: HTMLElement; dependencies: Set<string>}
+    | {kind: 'src'; element: HTMLElement; dependencies: Set<string>}
     | {kind: 'text'; node: Text; dependencies: Set<string>}
     | {kind: 'block'; block: ForBlock; dependencies: Set<string>}
     | {kind: 'props'; child: Component; dependencies: Set<string>};
@@ -39,6 +40,14 @@ export interface ShowIfEntry {
 }
 
 export interface ValueEntry {
+    expression: string;
+    scopeRef?: ForBlockScopeRef;
+    binding: TrackedBinding;
+}
+
+// data-src is one-way (expression -> attribute) — same shape as ValueEntry,
+// no write-back listener to carry
+export interface SrcEntry {
     expression: string;
     scopeRef?: ForBlockScopeRef;
     binding: TrackedBinding;

@@ -36,6 +36,7 @@ import type {
     PropBindingRecord,
     ShowIfEntry,
     SlotRecordEntry,
+    SrcEntry,
     TextNodeEntry,
     TextPart,
     TrackedBinding,
@@ -66,6 +67,7 @@ export default class Component {
     readonly #displayIfElementToDataMap = new Map<HTMLElement, DisplayIfEntry>();
     readonly #disabledIfElementToDataMap = new Map<HTMLElement, DisabledIfEntry>();
     readonly #valueElementToDataMap = new Map<HTMLElement, ValueEntry>();
+    readonly #srcElementToDataMap = new Map<HTMLElement, SrcEntry>();
     readonly #textNodeToDataMap = new Map<Text, TextNodeEntry>();
     readonly #forBlocks = new Set<ForBlock>();
 
@@ -246,6 +248,7 @@ export default class Component {
         this.#displayIfElementToDataMap.clear();
         this.#disabledIfElementToDataMap.clear();
         this.#valueElementToDataMap.clear();
+        this.#srcElementToDataMap.clear();
         this.#textNodeToDataMap.clear();
         this.#forBlocks.clear();
         this.#propBindings.clear();
@@ -443,6 +446,11 @@ export default class Component {
                     }
                 });
                 batch.forEach(binding => {
+                    if (binding.kind === 'src') {
+                        this.#updateOneSrc(binding.element);
+                    }
+                });
+                batch.forEach(binding => {
                     if (binding.kind === 'text') {
                         this.#updateOneText(binding.node);
                     }
@@ -477,6 +485,7 @@ export default class Component {
             this.#displayIfElementToDataMap.get(boundElement)?.binding,
             this.#disabledIfElementToDataMap.get(boundElement)?.binding,
             this.#valueElementToDataMap.get(boundElement)?.binding,
+            this.#srcElementToDataMap.get(boundElement)?.binding,
         ].filter((binding): binding is TrackedBinding => binding !== undefined);
     }
 
@@ -496,6 +505,7 @@ export default class Component {
         this.#displayIfElementToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
         this.#disabledIfElementToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
         this.#valueElementToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
+        this.#srcElementToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
         this.#textNodeToDataMap.forEach(entry => this.#dirtyBindings.add(entry.binding));
         this.#propBindings.forEach(record => this.#dirtyBindings.add(record.binding));
     }
@@ -770,6 +780,25 @@ export default class Component {
             boundElements.push(element);
         });
 
+        // Unlike data-show-if, data-src is allowed on the clone root: it
+        // sets an attribute in place, so there is no anchor conflict
+        [root, ...root.querySelectorAll<HTMLElement>('[data-src]')].forEach(element => {
+            if (element.dataset['src'] === undefined) {
+                return;
+            }
+
+            if (!this.#compileAtWiring(element.dataset['src']!, element)) {
+                return;
+            }
+
+            this.#srcElementToDataMap.set(element, {
+                expression: element.dataset['src']!,
+                scopeRef,
+                binding: {kind: 'src', element, dependencies: new Set()},
+            });
+            boundElements.push(element);
+        });
+
         // The entry already exists (set by the caller before wiring). Held by
         // reference for the rest of this method: its controller is this
         // clone's own lifetime, so an eviction severs these listeners without
@@ -1033,6 +1062,7 @@ export default class Component {
                     this.#textNodeToDataMap.delete(boundElement);
                 } else {
                     this.#valueElementToDataMap.delete(boundElement);
+                    this.#srcElementToDataMap.delete(boundElement);
                     this.#showIfElementToDataMap.delete(boundElement);
                     this.#displayIfElementToDataMap.delete(boundElement);
                     this.#disabledIfElementToDataMap.delete(boundElement);
@@ -1586,6 +1616,17 @@ export default class Component {
             }, {signal: this.#abortController.signal});
         });
 
+        fragment.querySelectorAll<HTMLElement>('[data-src]').forEach(element => {
+            if (!this.#compileAtWiring(element.dataset['src']!, element)) {
+                return;
+            }
+
+            this.#srcElementToDataMap.set(element, {
+                expression: element.dataset['src']!,
+                binding: {kind: 'src', element, dependencies: new Set()},
+            });
+        });
+
         fragment.querySelectorAll<HTMLElement>('*').forEach(element => {
             Array.from(element.attributes)
                 .filter(attribute => DATA_ON_ATTRIBUTE_NAME_PATTERN.exec(attribute.name))
@@ -1858,6 +1899,34 @@ export default class Component {
         }
 
         target.value = stringValue;
+    }
+
+    #updateOneSrc(element: HTMLElement): void {
+        const entry = this.#srcElementToDataMap.get(element);
+
+        if (!entry) {
+            return;
+        }
+
+        let newValue: unknown;
+
+        try {
+            newValue = this.#trackEvaluation(entry.binding, () => this.#evaluate({expression: entry.expression, scope: this.#scopeForBinding(entry.scopeRef)}));
+        } catch (error) {
+            console.error(`Can't evaluate the "${entry.expression}" data-src expression`, element, error);
+
+            return;
+        }
+
+        // No write-back, so no value-equality skip to guard: unlike
+        // data-value's input.value, setAttribute has no caret to disturb —
+        // null/undefined removes the attribute so an <img> never falls back
+        // to fetching the page URL
+        if (newValue === null || newValue === undefined) {
+            element.removeAttribute('src');
+        } else {
+            element.setAttribute('src', String(newValue));
+        }
     }
 
     #updateOneText(node: Text): void {
