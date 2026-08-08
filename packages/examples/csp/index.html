@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <!-- The point of this example: the strictest script policy a page can
+         carry, and the framework still runs. Expressions are parsed by hand
+         (no unsafe-eval), interpolation is text-only (no unsafe-inline), and
+         component code arrives as real files (no data: imports) -->
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self'">
+    <title>Strict CSP — app.js example</title>
+</head>
+<body>
+<div id="app"></div>
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>

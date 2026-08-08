@@ -1,0 +1,7 @@
+<!-- The strict-CSP component form: the code lives in a sibling file named by
+     src and loads as a real module — an inline script's data: import would be
+     blocked by this page's policy -->
+<template>
+    <button data-on-click="bump">${label}: ${count}</button>
+</template>
+<script src="./tally.js"></script>
